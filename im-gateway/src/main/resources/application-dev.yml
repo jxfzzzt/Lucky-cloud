@@ -76,6 +76,10 @@ knife4j:
       - name: Oss
         url: /oss/v3/api-docs?group=default
         service-name: oss
+    basic:
+      enable: true
+      username: lucky
+      password: Lucky20251001
 
 
 lucky:
