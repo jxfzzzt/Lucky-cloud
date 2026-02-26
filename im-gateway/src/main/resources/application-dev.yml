@@ -43,6 +43,10 @@ knife4j:
   # 聚合swagger文档
   gateway:
     enabled: true
+    basic:
+      enable: true
+      username: lucky
+      password: Lucky20251001
     routes:
       - name: Chat
         # 真实子服务访问url地址-提供OpenAPI的文档
@@ -76,10 +80,7 @@ knife4j:
       - name: Oss
         url: /oss/v3/api-docs?group=default
         service-name: oss
-    basic:
-      enable: true
-      username: lucky
-      password: Lucky20251001
+
 
 
 lucky:
