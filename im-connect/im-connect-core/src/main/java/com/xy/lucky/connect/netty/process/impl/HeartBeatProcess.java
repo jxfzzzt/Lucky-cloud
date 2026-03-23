@@ -33,7 +33,7 @@ public class HeartBeatProcess implements WebsocketProcess {
     @Autowired
     private NettyProperties nettyProperties;
 
-    @Value("${auth.tokenExpired:3}")
+    @Value("${auth.tokenExpired:2}")
     private Integer tokenExpired;
 
     @Autowired
@@ -56,10 +56,17 @@ public class HeartBeatProcess implements WebsocketProcess {
             return;
         }
 
+        if(!redisTemplate.exists(IMConstant.USER_CACHE_PREFIX + userId)){
+            log.warn("心跳处理失败：未识别的用户身份");
+            ctx.channel().writeAndFlush(IMessageWrap.builder().code(IMessageType.LOGOUT.getCode()));
+            ctx.close();
+            return;
+        }
+
         IMDeviceType deviceType = IMDeviceType.ofOrDefault(deviceTypeStr, IMDeviceType.WEB);
 
         // 2. Token 有效期检查与提醒
-        Integer code = IMessageType.HEART_BEAT_SUCCESS.getCode();
+        Integer code = IMessageType.HEART_BEAT_PONG.getCode();
         String message = "心跳成功";
         if (StringUtils.hasText(token) && tokenExpired != null && tokenExpired > 0) {
             try {
@@ -70,6 +77,7 @@ public class HeartBeatProcess implements WebsocketProcess {
                 }
             } catch (Exception ignored) {
                 // Token 解析失败或过期由网关或 AuthHandler 拦截，心跳此处不做强校验
+                log.warn("心跳处理失败：Token 解析失败或已过期");
             }
         }
 

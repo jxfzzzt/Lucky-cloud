@@ -18,7 +18,7 @@ import lombok.experimental.Accessors;
 public class FileVo {
 
     @Schema(description = "文件md5")
-    private String identifier;
+    private String key;
 
     @Schema(description = "文件名称")
     private String name;
@@ -29,10 +29,10 @@ public class FileVo {
     @Schema(description = "文件类型")
     private String type;
 
+    @Schema(description = "文件后缀")
+    private String suffix;
+
     @Schema(description = "文件地址")
     private String path;
-
-    @Schema(description = "缩略图文件地址")
-    private String thumbnailPath;
 
 }
