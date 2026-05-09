@@ -11,10 +11,11 @@ import com.xy.lucky.general.response.domain.ResultCode;
 import com.xy.lucky.rpc.api.database.auth.ImAuthTokenDubboService;
 import com.xy.lucky.security.SecurityAuthProperties;
 import com.xy.lucky.security.exception.AuthenticationFailException;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.dubbo.config.annotation.DubboReference;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -24,7 +25,6 @@ import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AuthTokenServiceImpl implements AuthTokenService {
 
     // ==================== Redis Key 前缀定义 ====================
@@ -41,6 +41,17 @@ public class AuthTokenServiceImpl implements AuthTokenService {
     private final RedisCache redisCache;
     private final SecurityAuthProperties authProperties;
     private final TokenVersionService tokenVersionService;
+    private final TaskExecutor taskExecutor;
+
+    public AuthTokenServiceImpl(RedisCache redisCache,
+                                SecurityAuthProperties authProperties,
+                                TokenVersionService tokenVersionService,
+                                @Qualifier("taskExecutor") TaskExecutor taskExecutor) {
+        this.redisCache = redisCache;
+        this.authProperties = authProperties;
+        this.tokenVersionService = tokenVersionService;
+        this.taskExecutor = taskExecutor;
+    }
 
     @DubboReference
     private ImAuthTokenDubboService authTokenDubboService;
@@ -65,7 +76,7 @@ public class AuthTokenServiceImpl implements AuthTokenService {
         String refreshToken = JwtUtil.createToken(userId, tokenVersion, refreshTtlHours, ChronoUnit.HOURS);
 
         cacheUserTokenMeta(userId, deviceId, tokenVersion, now, accessExpiresIn, refreshExpiresIn, accessToken, refreshToken);
-        persistTokenRecord(userId, deviceId, clientIp, tokenVersion, now, accessExpiresIn, accessToken, refreshToken);
+        persistTokenRecordAsync(userId, deviceId, clientIp, tokenVersion, now, accessExpiresIn, accessToken, refreshToken);
 
         log.info("令牌签发成功：userId={}, deviceId={}, version={}, ip={}",
                 userId, deviceId, tokenVersion, clientIp);
@@ -146,7 +157,7 @@ public class AuthTokenServiceImpl implements AuthTokenService {
             long now = System.currentTimeMillis();
             String accessToken = JwtUtil.createToken(userId, tokenVersion, accessTtlMinutes, ChronoUnit.MINUTES);
             cacheUserTokenMeta(userId, boundDeviceId, tokenVersion, now, accessExpiresIn, refreshExpiresIn, accessToken, refreshToken);
-            persistTokenRecord(userId, boundDeviceId, clientIp, tokenVersion, now, accessExpiresIn, accessToken, refreshToken);
+            persistTokenRecordAsync(userId, boundDeviceId, clientIp, tokenVersion, now, accessExpiresIn, accessToken, refreshToken);
 
             log.info("令牌刷新成功：userId={}", userId);
 
@@ -285,24 +296,26 @@ public class AuthTokenServiceImpl implements AuthTokenService {
         return token.startsWith(prefix) ? token.substring(prefix.length()).trim() : token.trim();
     }
 
-    private void persistTokenRecord(String userId, String deviceId, String clientIp, long tokenVersion,
-                                    long issuedAt, long accessExpiresIn, String accessToken, String refreshToken) {
-        try {
-            ImAuthTokenPo tokenPo = new ImAuthTokenPo()
-                    .setId(UUID.randomUUID().toString().replace("-", ""))
-                    .setUserId(userId)
-                    .setDeviceId(deviceId)
-                    .setClientIp(clientIp)
-                    .setAccessTokenHash(DigestUtils.sha256Hex(accessToken))
-                    .setRefreshTokenHash(DigestUtils.sha256Hex(refreshToken))
-                    .setTokenVersion(tokenVersion)
-                    .setIssuedAt(issuedAt)
-                    .setAccessExpiresAt(issuedAt + TimeUnit.SECONDS.toMillis(accessExpiresIn))
-                    .setUsed(0);
-            authTokenDubboService.create(tokenPo);
-        } catch (Exception e) {
-            log.warn("令牌记录失败：{}", e.getMessage());
-        }
+    private void persistTokenRecordAsync(String userId, String deviceId, String clientIp, long tokenVersion,
+                                         long issuedAt, long accessExpiresIn, String accessToken, String refreshToken) {
+        taskExecutor.execute(() -> {
+            try {
+                ImAuthTokenPo tokenPo = new ImAuthTokenPo()
+                        .setId(UUID.randomUUID().toString().replace("-", ""))
+                        .setUserId(userId)
+                        .setDeviceId(deviceId)
+                        .setClientIp(clientIp)
+                        .setAccessTokenHash(DigestUtils.sha256Hex(accessToken))
+                        .setRefreshTokenHash(DigestUtils.sha256Hex(refreshToken))
+                        .setTokenVersion(tokenVersion)
+                        .setIssuedAt(issuedAt)
+                        .setAccessExpiresAt(issuedAt + TimeUnit.SECONDS.toMillis(accessExpiresIn))
+                        .setUsed(0);
+                authTokenDubboService.create(tokenPo);
+            } catch (Exception e) {
+                log.warn("令牌记录失败：{}", e.getMessage());
+            }
+        });
     }
 
     private void cacheUserTokenMeta(String userId, String deviceId, long tokenVersion, long issuedAt,

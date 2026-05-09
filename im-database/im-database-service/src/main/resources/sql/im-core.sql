@@ -680,6 +680,11 @@ ALTER TABLE "public"."im_group_message" ADD CONSTRAINT "im_group_message_pkey" P
 -- Primary Key structure for table im_group_message_status
 -- ----------------------------
 ALTER TABLE "public"."im_group_message_status" ADD CONSTRAINT "im_group_message_status_pkey" PRIMARY KEY ("group_id", "message_id", "to_id");
+CREATE INDEX "idx_group_msg_status_to_read_group" ON "public"."im_group_message_status" USING btree (
+  "to_id" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
+  "read_status" ASC NULLS LAST,
+  "group_id" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
+);
 
 -- ----------------------------
 -- Indexes structure for table im_message_delivery
@@ -753,6 +758,16 @@ CREATE INDEX "idx_private_from" ON "public"."im_single_message" USING btree (
 );
 CREATE INDEX "idx_private_to" ON "public"."im_single_message" USING btree (
   "to_id" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
+);
+CREATE INDEX "idx_single_msg_pair_time" ON "public"."im_single_message" USING btree (
+  "from_id" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
+  "to_id" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
+  "message_time" DESC
+);
+CREATE INDEX "idx_single_msg_to_read_from" ON "public"."im_single_message" USING btree (
+  "to_id" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
+  "read_status" ASC NULLS LAST,
+  "from_id" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
 );
 
 -- ----------------------------

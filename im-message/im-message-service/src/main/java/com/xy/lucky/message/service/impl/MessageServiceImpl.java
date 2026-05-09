@@ -22,11 +22,9 @@ import com.xy.lucky.rpc.api.database.message.ImSingleMessageDubboService;
 import com.xy.lucky.rpc.api.leaf.ImIdDubboService;
 import com.xy.lucky.utils.id.IdUtils;
 import com.xy.lucky.utils.time.DateTimeUtils;
-import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -35,7 +33,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
@@ -74,10 +71,6 @@ public class MessageServiceImpl implements MessageService {
     private final MessageBeanMapper messageBeanMapper;
     private final MessageLifecycleOrchestrator messageLifecycleOrchestrator;
 
-    @Resource
-    @Qualifier("asyncTaskExecutor")
-    private Executor asyncTaskExecutor;
-
     /**
      * 发送单聊消息
      *
@@ -90,21 +83,17 @@ public class MessageServiceImpl implements MessageService {
             throw new MessageException("禁言中，无法发送消息");
         }
         String lockKey = LOCK_PREFIX + "single:" + dto.getFromId() + ":" + dto.getToId();
-//        return lockExecutor.execute(lockKey, () -> {
-            // 生成消息 ID
+        return lockExecutor.execute(lockKey, () -> {
             Long messageId = generateLongId(IdGeneratorConstant.snowflake, IdGeneratorConstant.private_message_id);
             Long messageTime = DateTimeUtils.getCurrentUTCTimestamp();
 
-            // 填充消息
             dto.setMessageId(String.valueOf(messageId))
                     .setMessageTime(messageTime)
                     .setReadStatus(IMessageReadStatus.UNREAD.getCode())
                     .setSequence(messageTime);
 
-            // 持久化消息
-            asyncPersistSingleMessage(dto, messageId, messageTime);
+            persistSingleMessage(dto, messageTime);
 
-            // 消息投递
             messageLifecycleOrchestrator.dispatch(
                     IMessageType.SINGLE_MESSAGE.getCode(),
                     dto,
@@ -113,7 +102,7 @@ public class MessageServiceImpl implements MessageService {
             );
             log.info("发送单聊消息: from={}, to={}, messageId={}", dto.getFromId(), dto.getToId(), messageId);
             return dto;
-//        });
+        });
     }
 
     /**
@@ -147,8 +136,7 @@ public class MessageServiceImpl implements MessageService {
                     .setReadStatus(IMessageReadStatus.UNREAD.getCode())
                     .setSequence(messageTime);
 
-            // 持久化消息
-            asyncPersistGroupMessage(dto, messageId, messageTime, members);
+            persistGroupMessage(dto, messageTime, members);
 
             // 过滤群成员ID
             List<String> targetUserIds = members.stream().map(ImGroupMemberPo::getMemberId).toList();
@@ -294,43 +282,22 @@ public class MessageServiceImpl implements MessageService {
 
     // ==================== 私有方法 ====================
 
-    /**
-     * 异步持久化单聊消息
-     */
-    private void asyncPersistSingleMessage(IMSingleMessage dto, Long messageId, Long messageTime) {
-        asyncTaskExecutor.execute(() -> {
-            try {
-                ImSingleMessagePo po = messageBeanMapper.toImSingleMessagePo(dto);
-                po.setDelFlag(IMStatus.YES.getCode());
-                saveSingleMessage(po);
-
-                updateChatSequenceIfExists(dto.getFromId(), dto.getToId(), messageTime, IMessageType.SINGLE_MESSAGE.getCode());
-                updateChatSequenceIfExists(dto.getToId(), dto.getFromId(), messageTime, IMessageType.SINGLE_MESSAGE.getCode());
-            } catch (Exception e) {
-                log.error("异步持久化单聊消息失败: messageId={}", messageId, e);
-            }
-        });
+    private void persistSingleMessage(IMSingleMessage dto, Long messageTime) {
+        ImSingleMessagePo po = messageBeanMapper.toImSingleMessagePo(dto);
+        po.setDelFlag(IMStatus.YES.getCode());
+        saveSingleMessage(po);
+        upsertChatSequence(dto.getFromId(), dto.getToId(), messageTime, IMessageType.SINGLE_MESSAGE.getCode());
+        upsertChatSequence(dto.getToId(), dto.getFromId(), messageTime, IMessageType.SINGLE_MESSAGE.getCode());
     }
 
-    /**
-     * 异步持久化群聊消息
-     */
-    private void asyncPersistGroupMessage(IMGroupMessage dto, Long messageId, Long messageTime, List<ImGroupMemberPo> members) {
-        asyncTaskExecutor.execute(() -> {
-            try {
-                ImGroupMessagePo po = messageBeanMapper.toImGroupMessagePo(dto);
-                po.setDelFlag(IMStatus.YES.getCode());
-                saveGroupMessage(po);
-
-                setGroupMessageReadStatus(String.valueOf(messageId), dto.getGroupId(), members);
-
-                for (ImGroupMemberPo member : members) {
-                    updateChatSequenceIfExists(member.getMemberId(), dto.getGroupId(), messageTime, IMessageType.GROUP_MESSAGE.getCode());
-                }
-            } catch (Exception e) {
-                log.error("异步持久化群聊消息失败: messageId={}", messageId, e);
-            }
-        });
+    private void persistGroupMessage(IMGroupMessage dto, Long messageTime, List<ImGroupMemberPo> members) {
+        ImGroupMessagePo po = messageBeanMapper.toImGroupMessagePo(dto);
+        po.setDelFlag(IMStatus.YES.getCode());
+        saveGroupMessage(po);
+        setGroupMessageReadStatus(dto.getMessageId(), dto.getGroupId(), members);
+        for (ImGroupMemberPo member : members) {
+            upsertChatSequence(member.getMemberId(), dto.getGroupId(), messageTime, IMessageType.GROUP_MESSAGE.getCode());
+        }
     }
 
     /**
@@ -473,25 +440,19 @@ public class MessageServiceImpl implements MessageService {
 
     private void saveSingleMessage(ImSingleMessagePo po) {
         if (!singleMessageDubboService.creat(po)) {
-            log.error("保存单聊消息失败: messageId={}", po.getMessageId());
+            throw new MessageException("保存单聊消息失败: messageId=" + po.getMessageId());
         }
     }
 
     private void saveGroupMessage(ImGroupMessagePo po) {
         if (!groupMessageDubboService.creat(po)) {
-            log.error("保存群聊消息失败: messageId={}", po.getMessageId());
+            throw new MessageException("保存群聊消息失败: messageId=" + po.getMessageId());
         }
     }
 
-    private void updateChatSequenceIfExists(String ownerId, String toId, Long messageTime, Integer chatType) {
+    private void upsertChatSequence(String ownerId, String toId, Long messageTime, Integer chatType) {
         try {
-            ImChatPo existing = chatDubboService.queryOne(ownerId, toId, chatType);
-            Optional.ofNullable(existing)
-                    .map(chatPo -> {
-                        chatPo.setSequence(messageTime);
-                        chatDubboService.modify(chatPo);
-                        return chatPo;
-                    });
+            chatDubboService.upsertSequence(ownerId, toId, chatType, messageTime, IdUtils.snowflakeIdStr());
         } catch (Exception e) {
             log.error("更新会话时序失败: ownerId={}, toId={}, chatType={}", ownerId, toId, chatType, e);
         }

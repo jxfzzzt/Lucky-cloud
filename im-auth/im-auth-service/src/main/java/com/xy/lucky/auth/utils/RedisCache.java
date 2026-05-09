@@ -2,6 +2,7 @@ package com.xy.lucky.auth.utils;
 
 
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.*;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeUnit;
  * redis缓存工具类
  */
 @Component
+@Slf4j
 @SuppressWarnings(value = {"unchecked", "rawtypes"})
 public final class RedisCache {
 
@@ -35,7 +37,7 @@ public final class RedisCache {
             }
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis expire failed, key={}, time={}", key, time, e);
             return false;
         }
     }
@@ -61,6 +63,7 @@ public final class RedisCache {
         try {
             return redisTemplate.hasKey(key);
         } catch (Exception e) {
+            log.error("Redis hasKey failed, key={}", key, e);
             return false;
         }
     }
@@ -147,7 +150,7 @@ public final class RedisCache {
             redisTemplate.opsForValue().set(key, value);
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis set failed, key={}", key, e);
             return false;
         }
     }
@@ -171,7 +174,7 @@ public final class RedisCache {
             }
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis set with ttl failed, key={}, time={}", key, time, e);
             return false;
         }
     }
@@ -195,7 +198,7 @@ public final class RedisCache {
             }
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis set with timeUnit failed, key={}, time={}, unit={}", key, time, timeUnit, e);
             return false;
         }
     }
@@ -264,7 +267,7 @@ public final class RedisCache {
             redisTemplate.opsForHash().putAll(key, map);
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
     }
@@ -286,7 +289,7 @@ public final class RedisCache {
             }
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
     }
@@ -305,7 +308,7 @@ public final class RedisCache {
             redisTemplate.opsForHash().put(key, item, value);
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
     }
@@ -327,7 +330,7 @@ public final class RedisCache {
             }
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
     }
@@ -391,7 +394,7 @@ public final class RedisCache {
         try {
             return redisTemplate.opsForSet().members(key);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return null;
         }
     }
@@ -408,7 +411,7 @@ public final class RedisCache {
         try {
             return redisTemplate.opsForSet().isMember(key, value);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
     }
@@ -425,7 +428,7 @@ public final class RedisCache {
         try {
             return redisTemplate.opsForSet().add(key, values);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return 0;
         }
     }
@@ -447,7 +450,7 @@ public final class RedisCache {
             }
             return count;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return 0;
         }
     }
@@ -462,7 +465,7 @@ public final class RedisCache {
         try {
             return redisTemplate.opsForSet().size(key);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return 0;
         }
     }
@@ -481,7 +484,7 @@ public final class RedisCache {
             Long count = redisTemplate.opsForSet().remove(key, values);
             return count;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return 0;
         }
     }
@@ -499,7 +502,7 @@ public final class RedisCache {
         try {
             return redisTemplate.opsForList().range(key, start, end);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return null;
         }
     }
@@ -514,7 +517,7 @@ public final class RedisCache {
         try {
             return redisTemplate.opsForList().size(key);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return 0;
         }
     }
@@ -531,7 +534,7 @@ public final class RedisCache {
             ListOperations<String, T> ops = redisTemplate.opsForList();
             return ops.index(key, index);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return null;
         }
     }
@@ -548,7 +551,7 @@ public final class RedisCache {
             redisTemplate.opsForList().rightPush(key, value);
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
     }
@@ -569,7 +572,7 @@ public final class RedisCache {
             }
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
 
@@ -588,7 +591,7 @@ public final class RedisCache {
             redisTemplate.opsForList().rightPushAll(key, value);
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
 
@@ -611,7 +614,7 @@ public final class RedisCache {
             }
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
     }
@@ -631,7 +634,7 @@ public final class RedisCache {
             redisTemplate.opsForList().set(key, index, value);
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return false;
         }
     }
@@ -651,12 +654,13 @@ public final class RedisCache {
             Long remove = redisTemplate.opsForList().remove(key, count, value);
             return remove;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Redis operation failed", e);
             return 0;
         }
 
     }
 
     public void set(String code, Map<String, Object> qrCodeInfo, int i, TimeUnit timeUnit) {
+        set(code, (Object) qrCodeInfo, i, timeUnit);
     }
 }

@@ -5,9 +5,53 @@
 <mapper namespace="com.xy.lucky.database.web.mapper.ImChatMapper">
 
     <select id="getChatList" resultType="com.xy.lucky.domain.po.ImChatPo">
-        SELECT *
+        SELECT chat_id,
+               chat_type,
+               owner_id,
+               to_id,
+               is_mute,
+               is_top,
+               sequence,
+               read_sequence,
+               create_time,
+               update_time,
+               del_flag,
+               version
         FROM im_chat
         WHERE owner_id = #{ownerId}
           AND sequence > #{sequence}
     </select>
+
+    <insert id="upsertSequence">
+        INSERT INTO im_chat (
+            chat_id,
+            chat_type,
+            owner_id,
+            to_id,
+            is_mute,
+            is_top,
+            sequence,
+            read_sequence,
+            create_time,
+            update_time,
+            del_flag,
+            version
+        ) VALUES (
+            #{chatId},
+            #{chatType},
+            #{ownerId},
+            #{toId},
+            0,
+            0,
+            #{sequence},
+            0,
+            #{sequence},
+            #{sequence},
+            1,
+            0
+        )
+        ON DUPLICATE KEY UPDATE
+            sequence = GREATEST(sequence, VALUES(sequence)),
+            update_time = VALUES(update_time)
+    </insert>
 </mapper>

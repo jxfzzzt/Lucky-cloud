@@ -116,3 +116,7 @@ management:
         im_message_dispatch_latency: true
       percentiles:
         im_message_dispatch_latency: 0.5,0.9,0.99
+
+message:
+  dispatch:
+    queue-capacity: 10000

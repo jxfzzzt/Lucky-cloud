@@ -19,8 +19,12 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class RateLimitServiceImpl implements RateLimitService {
 
-    private static final String KEY_PREFIX = "im:sms:rl:";
-    private static final String BLOCK_PREFIX = "im:sms:bl:";
+    private static final String SMS_RATE_LIMIT_PHONE_KEY_PREFIX = "im:auth:rate_limit:sms:phone:";
+    private static final String SMS_RATE_LIMIT_IP_KEY_PREFIX = "im:auth:rate_limit:sms:ip:";
+    private static final String SMS_RATE_LIMIT_DEVICE_KEY_PREFIX = "im:auth:rate_limit:sms:device:";
+    private static final String SMS_BLOCK_PHONE_KEY_PREFIX = "im:auth:block:sms:phone:";
+    private static final String SMS_BLOCK_IP_KEY_PREFIX = "im:auth:block:sms:ip:";
+    private static final String SMS_BLOCK_DEVICE_KEY_PREFIX = "im:auth:block:sms:device:";
 
     private final StringRedisTemplate stringRedisTemplate;
     private final SmsCodeProperties smsCodeProperties;
@@ -29,9 +33,9 @@ public class RateLimitServiceImpl implements RateLimitService {
     public boolean allowSmsSend(String phone, String clientIp, String deviceId) {
         SmsCodeProperties.RateLimit cfg = smsCodeProperties.getRateLimit();
 
-        String phoneKey = KEY_PREFIX + "P:" + DigestUtils.sha256Hex(Objects.requireNonNullElse(phone, ""));
-        String ipKey = KEY_PREFIX + "I:" + Objects.requireNonNullElse(clientIp, "");
-        String deviceKey = KEY_PREFIX + "D:" + DigestUtils.sha256Hex(Objects.requireNonNullElse(deviceId, ""));
+        String phoneKey = SMS_RATE_LIMIT_PHONE_KEY_PREFIX + DigestUtils.sha256Hex(Objects.requireNonNullElse(phone, ""));
+        String ipKey = SMS_RATE_LIMIT_IP_KEY_PREFIX + Objects.requireNonNullElse(clientIp, "");
+        String deviceKey = SMS_RATE_LIMIT_DEVICE_KEY_PREFIX + DigestUtils.sha256Hex(Objects.requireNonNullElse(deviceId, ""));
 
         if (isBlocked(phone, clientIp, deviceId)) {
             throw new AuthenticationFailException(ResultCode.TOO_MANY_REQUESTS);
@@ -51,15 +55,15 @@ public class RateLimitServiceImpl implements RateLimitService {
 
     private boolean isBlocked(String phone, String clientIp, String deviceId) {
         if (StringUtils.hasText(phone)) {
-            String key = BLOCK_PREFIX + "P:" + DigestUtils.sha256Hex(phone);
+            String key = SMS_BLOCK_PHONE_KEY_PREFIX + DigestUtils.sha256Hex(phone);
             if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(key))) return true;
         }
         if (StringUtils.hasText(clientIp)) {
-            String key = BLOCK_PREFIX + "I:" + clientIp;
+            String key = SMS_BLOCK_IP_KEY_PREFIX + clientIp;
             if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(key))) return true;
         }
         if (StringUtils.hasText(deviceId)) {
-            String key = BLOCK_PREFIX + "D:" + DigestUtils.sha256Hex(deviceId);
+            String key = SMS_BLOCK_DEVICE_KEY_PREFIX + DigestUtils.sha256Hex(deviceId);
             return Boolean.TRUE.equals(stringRedisTemplate.hasKey(key));
         }
         return false;
@@ -77,17 +81,16 @@ public class RateLimitServiceImpl implements RateLimitService {
     private void blockIfNeeded(String phone, String clientIp, String deviceId, Duration duration) {
         if (duration == null || duration.isZero() || duration.isNegative()) return;
         if (StringUtils.hasText(phone)) {
-            String key = BLOCK_PREFIX + "P:" + DigestUtils.sha256Hex(phone);
+            String key = SMS_BLOCK_PHONE_KEY_PREFIX + DigestUtils.sha256Hex(phone);
             stringRedisTemplate.opsForValue().set(key, "1", duration);
         }
         if (StringUtils.hasText(clientIp)) {
-            String key = BLOCK_PREFIX + "I:" + clientIp;
+            String key = SMS_BLOCK_IP_KEY_PREFIX + clientIp;
             stringRedisTemplate.opsForValue().set(key, "1", duration);
         }
         if (StringUtils.hasText(deviceId)) {
-            String key = BLOCK_PREFIX + "D:" + DigestUtils.sha256Hex(deviceId);
+            String key = SMS_BLOCK_DEVICE_KEY_PREFIX + DigestUtils.sha256Hex(deviceId);
             stringRedisTemplate.opsForValue().set(key, "1", duration);
         }
     }
 }
-

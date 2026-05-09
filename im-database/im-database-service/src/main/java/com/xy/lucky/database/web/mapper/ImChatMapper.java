@@ -13,8 +13,13 @@ public interface ImChatMapper extends BaseMapper<ImChatPo> {
 
 
     List<ImChatPo> getChatList(@Param("ownerId") String ownerId, @Param("sequence") Long sequence);
-}
 
+    int upsertSequence(@Param("ownerId") String ownerId,
+                       @Param("toId") String toId,
+                       @Param("chatType") Integer chatType,
+                       @Param("sequence") Long sequence,
+                       @Param("chatId") String chatId);
+}
 
 
 

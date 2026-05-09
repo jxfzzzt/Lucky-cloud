@@ -35,6 +35,7 @@ import java.io.*;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
@@ -78,6 +79,13 @@ public class OssFileMediaServiceS3Impl implements OssFileMediaService {
 
     @Value("${nsfw.api.url:http://localhost:3000/classify}")
     private String nsfwApiUrl;
+    @Value("${oss.local-meta-cache.ttl-seconds:15}")
+    private long localMetaCacheTtlSeconds;
+    @Value("${oss.local-meta-cache.max-entries:10000}")
+    private int localMetaCacheMaxEntries;
+
+    private final Map<String, LocalCacheEntry<OssFileImagePo>> localImageMetaCache = new ConcurrentHashMap<>();
+    private final Map<String, LocalCacheEntry<OssFilePo>> localFileMetaCache = new ConcurrentHashMap<>();
 
     @Override
     public ImageVo uploadImage(String identifier, MultipartFile file) {
@@ -89,7 +97,6 @@ public class OssFileMediaServiceS3Impl implements OssFileMediaService {
         FileTypeDetector.DetectedFileType detectedFileType = fileTypeDetector.detect(file);
         fileTypeDetector.validateByScene(detectedFileType, FileTypeDetector.UploadScene.IMAGE);
 
-        String originalFilename = file.getOriginalFilename();
         String bucket = ossUtils.getOrCreateBucketByImage();
         String objectName = buildObjectName(detectedFileType.extension());
         String fileSuffix = detectedFileType.extension();
@@ -129,11 +136,10 @@ public class OssFileMediaServiceS3Impl implements OssFileMediaService {
             }
 
             OssFileMediaInfo mediaInfo = new OssFileMediaInfo();
-            byte[] cachedBytes = memBytes;
+            byte[] sourceBytes = memBytes != null ? memBytes : toBytes(supplier);
             CompletableFuture<Void> mainProcessed = CompletableFuture.supplyAsync(() -> {
                 try {
-                    byte[] base = cachedBytes != null ? cachedBytes : toBytes(supplier);
-                    return applyStrategies(base, mediaInfo);
+                    return applyStrategies(sourceBytes, mediaInfo);
                 } catch (Exception ex) {
                     log.error("主图处理失败: {}", ex.getMessage(), ex);
                     throw new FileException("主图处理失败: " + ex.getMessage());
@@ -146,7 +152,7 @@ public class OssFileMediaServiceS3Impl implements OssFileMediaService {
                 }
             }, executor);
 
-            CompletableFuture.allOf(mainProcessed).join();
+            mainProcessed.join();
 
             OssFileImagePo reqOssImagePo = buildImagePo(identifier, file, bucket, objectName, fileSuffix,
                     detectedFileType.mimeType(), detectedFileType.bucketCode());
@@ -154,12 +160,11 @@ public class OssFileMediaServiceS3Impl implements OssFileMediaService {
             if (Boolean.TRUE.equals(ossProperties.getCreateThumbnail())) {
                 CompletableFuture.runAsync(() -> {
                     try {
-                        byte[] base = cachedBytes != null ? cachedBytes : toBytes(supplier);
-                        byte[] thumb = processWithStrategy(base, THUMBNAIL_KEY, mediaInfo);
+                        byte[] thumb = processWithStrategy(sourceBytes, THUMBNAIL_KEY, mediaInfo);
                         String thumbName = objectName + THUMBNAIL_PREFIX;
                         uploadBytes(bucket, thumbName, thumb, "image/png");
                     } catch (Exception e) {
-                        log.error("缩略图处理失败: " + e.getMessage());
+                        log.error("缩略图处理失败: {}", e.getMessage(), e);
                     }
                 }, executor);
                 reqOssImagePo.setHasThumbnail(true);
@@ -174,7 +179,8 @@ public class OssFileMediaServiceS3Impl implements OssFileMediaService {
                 CompletableFuture.runAsync(() -> {
                     try {
                         Files.deleteIfExists(t.toPath());
-                    } catch (Exception ignored) {
+                    } catch (Exception e) {
+                        log.warn("临时文件删除失败: {}", t.getAbsolutePath(), e);
                     }
                 }, executor);
             }
@@ -183,10 +189,12 @@ public class OssFileMediaServiceS3Impl implements OssFileMediaService {
 
     private void saveOssImageToRedis(OssFileImagePo ossImagePo) {
         redisUtils.set(ossImagePo.getIdentifier(), ossImagePo, CACHE_TTL_SECONDS);
+        putLocalMeta(localImageMetaCache, ossImagePo.getIdentifier(), ossImagePo);
     }
 
     private void saveOssFileToRedis(OssFilePo ossFilePo) {
         redisUtils.set(ossFilePo.getIdentifier(), ossFilePo, CACHE_TTL_SECONDS);
+        putLocalMeta(localFileMetaCache, ossFilePo.getIdentifier(), ossFilePo);
     }
 
     @Override
@@ -490,15 +498,122 @@ public class OssFileMediaServiceS3Impl implements OssFileMediaService {
      * 获取文件
      */
     private OssFileImagePo findExistingImageByIdentifier(String identifier) {
-        return Optional.ofNullable((OssFileImagePo) redisUtils.get(identifier))
-                .or(() -> ossFileImageRepository.findByIdentifier(identifier))
-                .orElse(null);
+        OssFileImagePo localCached = getLocalMeta(localImageMetaCache, identifier);
+        if (localCached != null) {
+            return localCached;
+        }
+        OssFileImagePo cached = getImageMetaFromRedis(identifier);
+        if (cached != null) {
+            putLocalMeta(localImageMetaCache, identifier, cached);
+            return cached;
+        }
+        OssFileImagePo dbEntity = ossFileImageRepository.findByIdentifier(identifier).orElse(null);
+        if (dbEntity != null) {
+            safeCacheImage(dbEntity);
+        }
+        return dbEntity;
     }
 
     private OssFilePo findExistingFileByIdentifier(String identifier) {
-        return Optional.ofNullable((OssFilePo) redisUtils.get(identifier))
-                .or(() -> ossFileRepository.findByIdentifier(identifier))
-                .orElse(null);
+        OssFilePo localCached = getLocalMeta(localFileMetaCache, identifier);
+        if (localCached != null) {
+            return localCached;
+        }
+        OssFilePo cached = getFileMetaFromRedis(identifier);
+        if (cached != null) {
+            putLocalMeta(localFileMetaCache, identifier, cached);
+            return cached;
+        }
+        OssFilePo dbEntity = ossFileRepository.findByIdentifier(identifier).orElse(null);
+        if (dbEntity != null) {
+            safeCacheFile(dbEntity);
+        }
+        return dbEntity;
+    }
+
+    private void safeCacheImage(OssFileImagePo imagePo) {
+        try {
+            saveOssImageToRedis(imagePo);
+        } catch (Exception e) {
+            log.warn("图片缓存回填失败: identifier={}", imagePo.getIdentifier(), e);
+        }
+    }
+
+    private void safeCacheFile(OssFilePo filePo) {
+        try {
+            saveOssFileToRedis(filePo);
+        } catch (Exception e) {
+            log.warn("文件缓存回填失败: identifier={}", filePo.getIdentifier(), e);
+        }
+    }
+
+    private OssFileImagePo getImageMetaFromRedis(String identifier) {
+        Object redisValue = redisUtils.get(identifier);
+        if (redisValue == null) {
+            return null;
+        }
+        if (redisValue instanceof OssFileImagePo imagePo) {
+            return imagePo;
+        }
+        log.warn("Redis 元数据类型不匹配(期望图片): identifier={}, actualType={}",
+                identifier, redisValue.getClass().getName());
+        return null;
+    }
+
+    private OssFilePo getFileMetaFromRedis(String identifier) {
+        Object redisValue = redisUtils.get(identifier);
+        if (redisValue == null) {
+            return null;
+        }
+        if (redisValue instanceof OssFilePo filePo) {
+            return filePo;
+        }
+        log.warn("Redis 元数据类型不匹配(期望文件): identifier={}, actualType={}",
+                identifier, redisValue.getClass().getName());
+        return null;
+    }
+
+    private <T> T getLocalMeta(Map<String, LocalCacheEntry<T>> cache, String key) {
+        LocalCacheEntry<T> entry = cache.get(key);
+        if (entry == null) {
+            return null;
+        }
+        long now = System.currentTimeMillis();
+        if (entry.expireAtMillis <= now) {
+            cache.remove(key, entry);
+            return null;
+        }
+        return entry.value;
+    }
+
+    private <T> void putLocalMeta(Map<String, LocalCacheEntry<T>> cache, String key, T value) {
+        if (localMetaCacheTtlSeconds <= 0 || value == null || key == null) {
+            return;
+        }
+        long expireAt = System.currentTimeMillis() + localMetaCacheTtlSeconds * 1000;
+        cache.put(key, new LocalCacheEntry<>(value, expireAt));
+        evictLocalMetaIfNecessary(cache);
+    }
+
+    private <T> void evictLocalMetaIfNecessary(Map<String, LocalCacheEntry<T>> cache) {
+        if (cache.size() <= localMetaCacheMaxEntries) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        cache.entrySet().removeIf(e -> e.getValue().expireAtMillis <= now);
+        if (cache.size() <= localMetaCacheMaxEntries) {
+            return;
+        }
+        int toRemove = cache.size() - localMetaCacheMaxEntries;
+        Iterator<String> iterator = cache.keySet().iterator();
+        while (toRemove > 0 && iterator.hasNext()) {
+            iterator.next();
+            iterator.remove();
+            toRemove--;
+        }
+    }
+
+    private record LocalCacheEntry<T>(T value, long expireAtMillis) {
     }
 
     private OssFileImagePo getRequiredImageFileByIdentifier(String identifier) {

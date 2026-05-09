@@ -28,7 +28,7 @@ public class UIDGenImpl implements IDGen {
     /**
      * 当前工作节点 ID
      */
-    private final AtomicLong workerId = new AtomicLong(0);
+    private final AtomicLong workerId = new AtomicLong(-1);
     private final AtomicLong sequence = new AtomicLong(0L); // 当前序列号
 
     // 起始时间戳（通常为项目统一设置的时间）
@@ -82,34 +82,35 @@ public class UIDGenImpl implements IDGen {
     /**
      * 加载并校验 workerId，仅首次调用有效。
      */
-    private void loadWorkerId() {
-        if (workerId.get() == 0) {
-            log.info("加载 workerId");
-
-            // 计算最大值
-            this.maxWorkerId = ~(-1L << workerBits);
-            this.maxSequence = ~(-1L << sequenceBits);
-
-            // 位移计算
-            this.workerShift = sequenceBits;
-            this.timestampShift = sequenceBits + workerBits;
-
-            // 初始化 RingBuffer
-            this.bufferSize = 1 << bufferSizeBits;
-            this.ringBuffer = new IdRingBuffer<>(bufferSize);
-
-            workerIdAssigner.load();
-
-            long id = workerIdAssigner.getWorkerId();
-
-            if (id < 0 || id > maxWorkerId) {
-                log.error("非法 workerId:{}，必须在 0-{} 范围内", id, maxWorkerId);
-                throw new IllegalArgumentException("workerId 必须介于 0-" + maxWorkerId + " 之间");
-            }
-            workerId.set(id);
-
-            log.info("加载完成，workerId = {}", id);
+    private synchronized void loadWorkerId() {
+        if (workerId.get() != -1) {
+            return;
         }
+        log.info("加载 workerId");
+
+        // 计算最大值
+        this.maxWorkerId = ~(-1L << workerBits);
+        this.maxSequence = ~(-1L << sequenceBits);
+
+        // 位移计算
+        this.workerShift = sequenceBits;
+        this.timestampShift = sequenceBits + workerBits;
+
+        // 初始化 RingBuffer
+        this.bufferSize = 1 << bufferSizeBits;
+        this.ringBuffer = new IdRingBuffer<>(bufferSize);
+
+        workerIdAssigner.load();
+
+        long id = workerIdAssigner.getWorkerId();
+
+        if (id < 0 || id > maxWorkerId) {
+            log.error("非法 workerId:{}，必须在 0-{} 范围内", id, maxWorkerId);
+            throw new IllegalArgumentException("workerId 必须介于 0-" + maxWorkerId + " 之间");
+        }
+        workerId.set(id);
+
+        log.info("加载完成，workerId = {}", id);
     }
 
     /**

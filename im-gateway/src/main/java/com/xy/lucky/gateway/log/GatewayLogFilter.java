@@ -1,10 +1,11 @@
 package com.xy.lucky.gateway.log;
 
-import com.xy.lucky.gateway.plugin.GatewayPlugin;
-import com.xy.lucky.gateway.plugin.GatewayPluginChain;
 import com.xy.lucky.gateway.utils.IPAddressUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.support.ServerWebExchangeUtils;
+import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
@@ -16,27 +17,18 @@ import java.util.LinkedHashSet;
 
 @Slf4j
 @Component
-public class GatewayLogFilter implements GatewayPlugin {
+public class GatewayLogFilter implements GlobalFilter, Ordered {
 
     private static final String START_TIME_ATTR = "startTime";
-
-    @Override
-    public String getId() {
-        return "gateway-log";
-    }
-
-    @Override
-    public String getVersion() {
-        return "1.0.0";
-    }
+    private static final int ORDER = 900;
 
     @Override
     public int getOrder() {
-        return 900;
+        return ORDER;
     }
 
     @Override
-    public Mono<Void> apply(ServerWebExchange exchange, GatewayPluginChain chain) {
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         exchange.getAttributes().put(START_TIME_ATTR, System.currentTimeMillis());
 
         return chain.filter(exchange).then(Mono.fromRunnable(() -> {

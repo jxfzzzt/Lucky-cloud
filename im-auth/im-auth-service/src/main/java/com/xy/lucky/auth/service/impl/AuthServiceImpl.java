@@ -7,6 +7,7 @@ import com.xy.lucky.auth.domain.*;
 import com.xy.lucky.auth.domain.vo.UserVo;
 import com.xy.lucky.auth.security.config.RSAKeyProperties;
 import com.xy.lucky.auth.security.domain.AuthRequestContext;
+import com.xy.lucky.auth.security.helper.AuthUserCacheHelper;
 import com.xy.lucky.auth.security.helper.CryptoHelper;
 import com.xy.lucky.auth.security.token.MobileAuthenticationToken;
 import com.xy.lucky.auth.security.token.QrScanAuthenticationToken;
@@ -39,6 +40,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
@@ -48,11 +50,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 public class AuthServiceImpl implements AuthService {
+    private static final String LOGIN_RATE_LIMIT_PRINCIPAL_KEY_PREFIX = "im:auth:rate_limit:login:principal:";
+    private static final String LOGIN_RATE_LIMIT_IP_KEY_PREFIX = "im:auth:rate_limit:login:ip:";
 
     @DubboReference
     private ImUserDubboService imUserDubboService;
@@ -78,6 +83,14 @@ public class AuthServiceImpl implements AuthService {
     private PasswordEncoder passwordEncoder;
     @Resource
     private TokenVersionService tokenVersionService;
+    @Resource
+    private TaskExecutor taskExecutor;
+    @Resource
+    private AuthUserCacheHelper authUserCacheHelper;
+    @org.springframework.beans.factory.annotation.Value("${auth.connect-endpoint-cache-seconds:10}")
+    private long connectEndpointCacheSeconds;
+    private final AtomicBoolean endpointRefreshing = new AtomicBoolean(false);
+    private volatile EndpointCache endpointCache = new EndpointCache(Collections.emptyList(), 0L);
 
     // --------------------------------------------------
     // 1. 统一登录接口
@@ -88,34 +101,29 @@ public class AuthServiceImpl implements AuthService {
      */
     @Override
     public LoginResult login(LoginRequest req, HttpServletRequest request) {
-        log.info("用户登录请求：authType={}, principal={}", req.getAuthType(), req.getPrincipal());
+        long begin = System.currentTimeMillis();
 
-        enforceLoginRateLimit(req, request);
-
-        // 1. 核心认证逻辑
-        Authentication auth = authenticate(req, request);
-
-        // 2. 签发会话令牌
         String clientIp = RequestContextUtil.resolveClientIp(request);
         String deviceId = RequestContextUtil.resolveDeviceId(request, clientIp);
+        enforceLoginRateLimit(req, clientIp);
+
+        // 1. 核心认证逻辑
+        Authentication auth = authenticate(req, clientIp, deviceId);
+
+        // 2. 签发会话令牌
         LoginResult loginResult = generateAuthInfo(auth, deviceId, clientIp);
 
-        // 3. 异步获取可用的 IM 服务节点（用于长连接引导）
-        try {
-            List<ConnectEndpointMetadata> endpoints = fetchConnectServerEndpoints();
-            loginResult.setConnectEndpoints(endpoints);
-        } catch (Exception ex) {
-            log.error("获取连接端点失败: {}", ex.getMessage());
-        }
-
+        // 3. connect 端点仅走本地缓存，缓存刷新改为异步，不阻塞登录主链路
+        loginResult.setConnectEndpoints(fetchConnectServerEndpointsFast());
+        log.info("用户登录成功: authType={}, userId={}, costMs={}",
+                req.getAuthType(), loginResult.getUserId(), System.currentTimeMillis() - begin);
         return loginResult;
     }
 
-    private void enforceLoginRateLimit(LoginRequest req, HttpServletRequest request) {
+    private void enforceLoginRateLimit(LoginRequest req, String clientIp) {
         String principal = Optional.ofNullable(req.getPrincipal()).orElse("");
-        String clientIp = RequestContextUtil.resolveClientIp(request);
-        String pKey = "IM:AUTH:RL:P:" + DigestUtils.sha256Hex(principal);
-        String iKey = "IM:AUTH:RL:I:" + Optional.ofNullable(clientIp).orElse("");
+        String pKey = LOGIN_RATE_LIMIT_PRINCIPAL_KEY_PREFIX + DigestUtils.sha256Hex(principal);
+        String iKey = LOGIN_RATE_LIMIT_IP_KEY_PREFIX + Optional.ofNullable(clientIp).orElse("");
         int limit = 10;
         long windowSec = TimeUnit.MINUTES.toSeconds(5);
         long pc = redisCache.incr(pKey, 1);
@@ -130,14 +138,12 @@ public class AuthServiceImpl implements AuthService {
     /**
      * 内部认证分发逻辑
      */
-    private Authentication authenticate(LoginRequest req, HttpServletRequest request) {
+    private Authentication authenticate(LoginRequest req, String clientIp, String deviceId) {
         try {
             return switch (req.getAuthType()) {
                 case IMConstant.AUTH_TYPE_FORM ->
                         authenticationManager.authenticate(new UserAuthenticationToken(req.getPrincipal(), req.getCredentials()));
                 case IMConstant.AUTH_TYPE_SMS -> {
-                    String clientIp = RequestContextUtil.resolveClientIp(request);
-                    String deviceId = RequestContextUtil.resolveDeviceId(request, clientIp);
                     MobileAuthenticationToken token = new MobileAuthenticationToken(req.getPrincipal(), req.getCredentials());
                     token.setDetails(new AuthRequestContext(clientIp, deviceId));
                     yield authenticationManager.authenticate(token);
@@ -146,8 +152,11 @@ public class AuthServiceImpl implements AuthService {
                         authenticationManager.authenticate(new QrScanAuthenticationToken(req.getPrincipal(), req.getCredentials()));
                 default -> throw new AuthenticationFailException(ResultCode.UNSUPPORTED_AUTHENTICATION_TYPE);
             };
+        } catch (AuthenticationFailException ex) {
+            log.warn("身份认证失败 [{}]: {}", req.getAuthType(), ex.getResultCode().getCode());
+            throw ex;
         } catch (Exception ex) {
-            log.error("身份认证失败 [{}]: {}", req.getAuthType(), ex.getMessage());
+            log.error("身份认证系统异常 [{}]: {}", req.getAuthType(), ex.getMessage(), ex);
             throw new AuthenticationFailException(ResultCode.AUTHENTICATION_FAILED);
         }
     }
@@ -181,6 +190,39 @@ public class AuthServiceImpl implements AuthService {
                 .toList();
     }
 
+    private List<ConnectEndpointMetadata> fetchConnectServerEndpointsFast() {
+        long ttlMs = Math.max(1L, connectEndpointCacheSeconds) * 1000L;
+        long now = System.currentTimeMillis();
+        EndpointCache current = endpointCache;
+        if (current.expireAtMs > now) {
+            return current.endpoints;
+        }
+        // 缓存过期后触发异步刷新，当前请求直接返回旧值（或空列表）
+        refreshConnectEndpointsAsync(ttlMs);
+        return current.endpoints;
+    }
+
+    private void refreshConnectEndpointsAsync(long ttlMs) {
+        if (!endpointRefreshing.compareAndSet(false, true)) {
+            return;
+        }
+        taskExecutor.execute(() -> {
+            try {
+                long now = System.currentTimeMillis();
+                EndpointCache current = endpointCache;
+                if (current.expireAtMs > now) {
+                    return;
+                }
+                List<ConnectEndpointMetadata> refreshed = fetchConnectServerEndpoints();
+                endpointCache = new EndpointCache(refreshed, now + ttlMs);
+            } catch (Exception ex) {
+                log.warn("异步刷新连接端点缓存失败: {}", ex.getMessage());
+            } finally {
+                endpointRefreshing.set(false);
+            }
+        });
+    }
+
     /**
      * 构建连接元数据。
      *
@@ -189,15 +231,37 @@ public class AuthServiceImpl implements AuthService {
      */
     private ConnectEndpointMetadata buildIMConnectEndpointMetadata(ServiceInstance instance) {
         Map<String, String> instanceMetadata = instance.getMetadata();
+        int priority = parsePriority(instanceMetadata.get(NacosMetadataConstants.PRIORITY));
+        List<String> protocols = parseProtocols(instanceMetadata.get(NacosMetadataConstants.PROTOCOLS));
         return ConnectEndpointMetadata.builder()
                 .region(instanceMetadata.get(NacosMetadataConstants.REGION))
-                .priority(Integer.parseInt(instanceMetadata.get(NacosMetadataConstants.PRIORITY)))
+                .priority(priority)
                 .wsPath(instanceMetadata.get(NacosMetadataConstants.WS_PATH))
                 .endpoint(instance.getHost() + ":" + instance.getPort())
-                .protocols(JacksonUtils.toObj(instanceMetadata.get(NacosMetadataConstants.PROTOCOLS), new TypeReference<>() {
-                }))
+                .protocols(protocols)
                 .createdAt(System.currentTimeMillis() / 1000L)
                 .build();
+    }
+
+    private int parsePriority(String priority) {
+        try {
+            return Integer.parseInt(priority);
+        } catch (Exception ex) {
+            return 0;
+        }
+    }
+
+    private List<String> parseProtocols(String protocols) {
+        try {
+            List<String> parsed = JacksonUtils.toObj(protocols, new TypeReference<>() {
+            });
+            return parsed == null ? Collections.emptyList() : parsed;
+        } catch (Exception ex) {
+            return Collections.emptyList();
+        }
+    }
+
+    private record EndpointCache(List<ConnectEndpointMetadata> endpoints, long expireAtMs) {
     }
 
     // --------------------------------------------------
@@ -353,12 +417,12 @@ public class AuthServiceImpl implements AuthService {
         AuthTokenPair pair = authTokenService.issueTokens(userId, deviceId, clientIp);
         log.debug("生成认证信息：userId={}, accessExpiresIn={}", userId, pair.getAccessExpiresIn());
 
-        return new LoginResult()
-                .setUserId(userId)
-                .setAccessToken(pair.getAccessToken())
-                .setRefreshToken(pair.getRefreshToken())
-                .setAccessExpiration(pair.getAccessExpiresIn())
-                .setRefreshExpiration(pair.getRefreshExpiresIn());
+        return LoginResult.builder()
+                .userId(userId)
+                .accessToken(pair.getAccessToken())
+                .refreshToken(pair.getRefreshToken())
+                .accessExpiration(pair.getAccessExpiresIn())
+                .refreshExpiration(pair.getRefreshExpiresIn()).build();
     }
 
     @Override
@@ -387,8 +451,10 @@ public class AuthServiceImpl implements AuthService {
 
         user.setPassword(passwordEncoder.encode(newPassword));
         if (!Boolean.TRUE.equals(imUserDubboService.modify(user))) {
-            throw new AuthenticationFailException(ResultCode.FAIL);
+            throw new AuthenticationFailException(ResultCode.SERVICE_EXCEPTION);
         }
+
+        authUserCacheHelper.evictByUserId(userId);
 
         tokenVersionService.incrementVersion(userId);
 
@@ -443,7 +509,7 @@ public class AuthServiceImpl implements AuthService {
             return  QRCodeUtil.generateQRCodeBase64(content, "png");
         } catch (Exception e) {
             log.error("二维码生成失败：content={}", content, e);
-            return null;
+            throw new AuthenticationFailException(ResultCode.SERVICE_EXCEPTION);
         }
     }
 
@@ -452,6 +518,7 @@ public class AuthServiceImpl implements AuthService {
         try {
             return smsService.sendMessage(phone, clientIp, deviceId);
         } catch (Exception e) {
+            log.error("短信发送异常: phone={}", phone, e);
             throw new AuthenticationFailException(ResultCode.SMS_ERROR);
         }
     }

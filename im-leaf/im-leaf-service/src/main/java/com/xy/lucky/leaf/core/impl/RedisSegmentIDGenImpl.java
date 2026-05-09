@@ -7,7 +7,7 @@ import com.xy.lucky.core.model.IMetaId;
 import com.xy.lucky.leaf.core.IDGen;
 import com.xy.lucky.leaf.model.IdMetaInfo;
 import com.xy.lucky.leaf.repository.IdMetaInfoRepository;
-import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import lombok.Data;
 import lombok.SneakyThrows;
@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.File;
 import java.nio.file.Paths;
@@ -115,7 +116,6 @@ public class RedisSegmentIDGenImpl implements IDGen {
 
     @Override
     @SneakyThrows
-    @PostConstruct
     public boolean init() {
         // 从文件快速加载状态（尽力而为）
         loadCacheFromFile();
@@ -188,7 +188,8 @@ public class RedisSegmentIDGenImpl implements IDGen {
 
     @Override
     public Mono<IMetaId> get(String key) {
-        return Mono.fromCallable(() -> getId(key));
+        return Mono.fromCallable(() -> getId(key))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
@@ -204,6 +205,7 @@ public class RedisSegmentIDGenImpl implements IDGen {
     /**
      * 关闭服务时清理资源
      */
+    @PreDestroy
     public void shutdown() {
         try {
             loaderPool.shutdownNow();

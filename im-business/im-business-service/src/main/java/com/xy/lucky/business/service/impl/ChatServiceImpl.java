@@ -10,9 +10,11 @@ import com.xy.lucky.core.enums.IMStatus;
 import com.xy.lucky.core.enums.IMessageReadStatus;
 import com.xy.lucky.core.enums.IMessageType;
 import com.xy.lucky.domain.po.ImChatPo;
+import com.xy.lucky.domain.po.ImGroupPo;
 import com.xy.lucky.domain.po.ImGroupMessagePo;
 import com.xy.lucky.domain.po.ImGroupMessageStatusPo;
 import com.xy.lucky.domain.po.ImSingleMessagePo;
+import com.xy.lucky.domain.po.ImUserDataPo;
 import com.xy.lucky.rpc.api.database.chat.ImChatDubboService;
 import com.xy.lucky.rpc.api.database.group.ImGroupDubboService;
 import com.xy.lucky.rpc.api.database.message.ImGroupMessageDubboService;
@@ -24,10 +26,16 @@ import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 会话服务实现
@@ -64,19 +72,15 @@ public class ChatServiceImpl implements ChatService {
      */
     @Override
     public void read(ChatDto dto) {
-        String lockKey = LOCK_PREFIX + "read:" + dto.getChatType() + ":" + dto.getFromId() + ":" + dto.getToId();
-        lockExecutor.execute(lockKey, () -> {
-            IMessageType type = IMessageType.getByCode(dto.getChatType());
-            if (type == null) {
-                throw new ChatException("不支持的消息类型");
-            }
-
-            switch (type) {
-                case SINGLE_MESSAGE -> markSingleMessageRead(dto);
-                case GROUP_MESSAGE -> markGroupMessageRead(dto);
-                default -> throw new ChatException("不支持的消息类型");
-            }
-        });
+        IMessageType type = IMessageType.getByCode(dto.getChatType());
+        if (type == null) {
+            throw new ChatException("不支持的消息类型");
+        }
+        switch (type) {
+            case SINGLE_MESSAGE -> markSingleMessageRead(dto);
+            case GROUP_MESSAGE -> markGroupMessageRead(dto);
+            default -> throw new ChatException("不支持的消息类型");
+        }
     }
 
     /**
@@ -104,12 +108,9 @@ public class ChatServiceImpl implements ChatService {
      */
     @Override
     public ChatVo one(String ownerId, String toId) {
-        String lockKey = LOCK_PREFIX + "one:" + ownerId + ":" + toId;
-        return lockExecutor.execute(lockKey, () -> {
-            return Optional.ofNullable(chatDubboService.queryOne(ownerId, toId, null))
-                    .map(this::buildChatVo)
-                    .orElseGet(ChatVo::new);
-        });
+        return Optional.ofNullable(chatDubboService.queryOne(ownerId, toId, null))
+                .map(this::buildChatVo)
+                .orElseGet(ChatVo::new);
     }
 
     /**
@@ -120,18 +121,14 @@ public class ChatServiceImpl implements ChatService {
      */
     @Override
     public List<ChatVo> list(ChatDto dto) {
-        String lockKey = LOCK_PREFIX + "list:" + dto.getFromId();
-        return lockExecutor.execute(lockKey, () -> {
-            List<ImChatPo> chatList = chatDubboService.queryList(dto.getFromId(), dto.getSequence());
-
-            if (CollectionUtils.isEmpty(chatList)) {
-                return Collections.emptyList();
-            }
-
-            return chatList.stream()
-                    .map(this::buildChatVo)
-                    .toList();
-        });
+        List<ImChatPo> chatList = chatDubboService.queryList(dto.getFromId(), dto.getSequence());
+        if (CollectionUtils.isEmpty(chatList)) {
+            return Collections.emptyList();
+        }
+        ChatBuildContext context = buildContext(chatList, dto.getFromId());
+        return chatList.stream()
+                .map(chatPo -> buildChatVo(chatPo, context))
+                .toList();
     }
 
     // ==================== 私有方法 ====================
@@ -160,11 +157,18 @@ public class ChatServiceImpl implements ChatService {
      * 构建会话 VO（根据类型选择策略）
      */
     private ChatVo buildChatVo(ImChatPo chatPo) {
+        return buildChatVo(chatPo, null);
+    }
+
+    /**
+     * 构建会话 VO（支持批量预加载上下文，降低 Dubbo N+1 调用）
+     */
+    private ChatVo buildChatVo(ImChatPo chatPo, ChatBuildContext context) {
         return Optional.ofNullable(chatPo)
                 .map(po -> Optional.ofNullable(IMessageType.getByCode(po.getChatType()))
                         .map(type -> switch (type) {
-                            case SINGLE_MESSAGE -> buildSingleChatVo(po);
-                            case GROUP_MESSAGE -> buildGroupChatVo(po);
+                            case SINGLE_MESSAGE -> buildSingleChatVo(po, context);
+                            case GROUP_MESSAGE -> buildGroupChatVo(po, context);
                             default -> new ChatVo();
                         })
                         .orElseGet(ChatVo::new))
@@ -174,7 +178,7 @@ public class ChatServiceImpl implements ChatService {
     /**
      * 构建单聊会话 VO
      */
-    private ChatVo buildSingleChatVo(ImChatPo chatPo) {
+    private ChatVo buildSingleChatVo(ImChatPo chatPo, ChatBuildContext context) {
         ChatVo vo = chatBeanMapper.toChatVo(chatPo);
         String ownerId = vo.getOwnerId();
         String toId = vo.getToId();
@@ -195,7 +199,12 @@ public class ChatServiceImpl implements ChatService {
 
         // 获取用户信息
         String targetUserId = ownerId.equals(toId) ? ownerId : toId;
-        Optional.ofNullable(userDataDubboService.queryOne(targetUserId))
+        ImUserDataPo userDataPo = Optional.ofNullable(context)
+                .map(ChatBuildContext::users)
+                .map(users -> users.get(targetUserId))
+                .orElse(null);
+
+        Optional.ofNullable(userDataPo != null ? userDataPo : userDataDubboService.queryOne(targetUserId))
                 .ifPresent(user -> {
                     vo.setId(user.getUserId());
                     vo.setName(user.getName());
@@ -208,13 +217,13 @@ public class ChatServiceImpl implements ChatService {
     /**
      * 构建群聊会话 VO
      */
-    private ChatVo buildGroupChatVo(ImChatPo chatPo) {
+    private ChatVo buildGroupChatVo(ImChatPo chatPo, ChatBuildContext context) {
         ChatVo vo = chatBeanMapper.toChatVo(chatPo);
         String ownerId = vo.getOwnerId();
         String groupId = vo.getToId();
 
         // 获取最后一条消息
-        ImGroupMessagePo lastMsg = groupMessageDubboService.queryLast(ownerId, groupId);
+        ImGroupMessagePo lastMsg = groupMessageDubboService.queryLast(groupId, ownerId);
         Optional.ofNullable(lastMsg)
                 .map(ImGroupMessagePo::getMessageId)
                 .ifPresentOrElse(messageId -> {
@@ -227,7 +236,11 @@ public class ChatServiceImpl implements ChatService {
         vo.setUnread(Optional.ofNullable(unread).orElse(0));
 
         // 获取群信息
-        Optional.ofNullable(groupDubboService.queryOne(groupId))
+        ImGroupPo groupPo = Optional.ofNullable(context)
+                .map(ChatBuildContext::groups)
+                .map(groups -> groups.get(groupId))
+                .orElse(null);
+        Optional.ofNullable(groupPo != null ? groupPo : groupDubboService.queryOne(groupId))
                 .ifPresent(group -> {
                     vo.setId(group.getGroupId());
                     vo.setName(group.getGroupName());
@@ -235,6 +248,51 @@ public class ChatServiceImpl implements ChatService {
                 });
 
         return vo;
+    }
+
+    /**
+     * 构建会话列表上下文，避免在 list 场景对用户/群信息进行 N+1 查询
+     */
+    private ChatBuildContext buildContext(List<ImChatPo> chatList, String ownerId) {
+        Set<String> userIds = new HashSet<>();
+        Set<String> groupIds = new HashSet<>();
+
+        for (ImChatPo chatPo : chatList) {
+            IMessageType type = IMessageType.getByCode(chatPo.getChatType());
+            if (type == null) {
+                continue;
+            }
+            if (type == IMessageType.SINGLE_MESSAGE) {
+                String targetUserId = ownerId.equals(chatPo.getToId()) ? ownerId : chatPo.getToId();
+                if (targetUserId != null) {
+                    userIds.add(targetUserId);
+                }
+                continue;
+            }
+            if (type == IMessageType.GROUP_MESSAGE && chatPo.getToId() != null) {
+                groupIds.add(chatPo.getToId());
+            }
+        }
+
+        Map<String, ImUserDataPo> userMap = Collections.emptyMap();
+        if (!CollectionUtils.isEmpty(userIds)) {
+            userMap = Optional.ofNullable(userDataDubboService.queryListByIds(new ArrayList<>(userIds)))
+                    .orElseGet(Collections::emptyList)
+                    .stream()
+                    .collect(Collectors.toMap(ImUserDataPo::getUserId, Function.identity(), (a, b) -> a));
+        }
+
+        Map<String, ImGroupPo> groupMap = Collections.emptyMap();
+        if (!CollectionUtils.isEmpty(groupIds)) {
+            groupMap = Optional.ofNullable(groupDubboService.queryListByIds(new ArrayList<>(groupIds)))
+                    .orElseGet(Collections::emptyList)
+                    .stream()
+                    .collect(Collectors.toMap(ImGroupPo::getGroupId, Function.identity(), (a, b) -> a));
+        }
+        return new ChatBuildContext(userMap, groupMap);
+    }
+
+    private record ChatBuildContext(Map<String, ImUserDataPo> users, Map<String, ImGroupPo> groups) {
     }
 
     /**
@@ -279,8 +337,8 @@ public class ChatServiceImpl implements ChatService {
     private void markGroupMessageRead(ChatDto dto) {
         ImGroupMessageStatusPo updatePo = new ImGroupMessageStatusPo()
                 .setReadStatus(IMessageReadStatus.ALREADY_READ.getCode())
-                .setGroupId(dto.getFromId())
-                .setToId(dto.getToId());
+                .setGroupId(dto.getToId())
+                .setToId(dto.getFromId());
         groupMessageDubboService.modifyReadStatus(updatePo);
     }
 }
