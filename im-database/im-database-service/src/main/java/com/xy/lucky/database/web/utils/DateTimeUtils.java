@@ -2,6 +2,7 @@ package com.xy.lucky.database.web.utils;
 
 
 import com.xy.lucky.utils.object.ObjectUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.DateUtils;
 
@@ -18,6 +19,7 @@ import java.util.*;
  *
  * @version 1.0
  */
+@Slf4j
 public class DateTimeUtils extends DateUtils {
 
     public static final String FULL_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
@@ -89,7 +91,7 @@ public class DateTimeUtils extends DateUtils {
             try {
                 date = sdf.parse(xDate);
             } catch (ParseException e) {
-                e.printStackTrace();
+                log.warn("日期解析失败: xDate={}, format={}", xDate, xFormat, e);
                 return null;
             }
             return date;
@@ -117,13 +119,13 @@ public class DateTimeUtils extends DateUtils {
             sdf.parse(xDate);
             return false;
         } catch (ParseException e) {
-            e.printStackTrace();
+            log.warn("日期格式校验失败: xDate={}, format={}", xDate, format, e);
             return true;
         }
     }
 
     public static boolean isDate(String xDate) {
-        return !isDate(xDate);
+        return !isNotDate(xDate, null);
     }
 
     /**
@@ -260,7 +262,7 @@ public class DateTimeUtils extends DateUtils {
             date = sdf.parse(time);
             return (date.getTime() / 1000);
         } catch (ParseException e) {
-            e.printStackTrace();
+            log.warn("日期转秒时间戳失败: time={}, format={}", time, format, e);
         }
         return null;
     }
@@ -321,7 +323,7 @@ public class DateTimeUtils extends DateUtils {
             date = sdf.parse(time);
             return date.getTime();
         } catch (ParseException e) {
-            e.printStackTrace();
+            log.warn("日期转毫秒时间戳失败: time={}, format={}", time, format, e);
         }
         return null;
     }
@@ -407,7 +409,7 @@ public class DateTimeUtils extends DateUtils {
             // 方法一
             tsStr = dateFormat.format(ts);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.warn("时间戳格式化失败: time={}, format={}", time, format, e);
         }
         return tsStr;
     }
@@ -730,7 +732,7 @@ public class DateTimeUtils extends DateUtils {
                 flag = false;
             }
         } catch (ParseException e) {
-            e.printStackTrace();
+            log.warn("时分比较解析失败: s1={}, s2={}", s1, s2, e);
         }
         return flag;
     }

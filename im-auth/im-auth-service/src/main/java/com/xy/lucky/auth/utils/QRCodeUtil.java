@@ -5,6 +5,7 @@ import com.google.zxing.EncodeHintType;
 import com.google.zxing.MultiFormatWriter;
 import com.google.zxing.common.BitMatrix;
 import com.xy.lucky.auth.security.config.QRCodeProperties;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -22,6 +23,7 @@ import java.util.Map;
  *
  * @author songzixian
  */
+@Slf4j
 public class QRCodeUtil {
 
     private static QRCodeProperties qrCodeProperties = new QRCodeProperties();
@@ -76,9 +78,9 @@ public class QRCodeUtil {
             String format = getFileExtension(filePath);
             ImageIO.write(image, format, qrCodeFile);
             
-            System.out.println("二维码生成成功: " + filePath);
+            log.info("二维码生成成功: filePath={}", filePath);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("生成二维码失败: text={}, filePath={}", text, filePath, e);
         }
     }
     
@@ -129,7 +131,7 @@ public class QRCodeUtil {
             
             return image;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("生成二维码图片失败: text={}, width={}, height={}", text, width, height, e);
             return null;
         }
     }
@@ -184,7 +186,7 @@ public class QRCodeUtil {
             ImageIO.write(image, format, outputStream);
             return outputStream.toByteArray();
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("生成二维码字节失败: text={}, width={}, height={}, format={}", text, width, height, format, e);
             return null;
         }
     }
@@ -240,7 +242,7 @@ public class QRCodeUtil {
                 return "data:image/" + format + ";base64," + Base64.getEncoder().encodeToString(imageBytes);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("生成二维码 Base64 失败: text={}, width={}, height={}, format={}", text, width, height, format, e);
         }
         return null;
     }
@@ -372,7 +374,7 @@ public class QRCodeUtil {
         
         // 如果Logo图片不存在，则返回原二维码图片
         if (logoImage == null) {
-            System.err.println("Logo文件不存在: " + logoPath);
+            log.warn("Logo文件不存在: logoPath={}", logoPath);
             return qrImage;
         }
         

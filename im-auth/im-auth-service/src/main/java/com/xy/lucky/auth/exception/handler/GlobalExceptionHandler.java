@@ -4,6 +4,7 @@ package com.xy.lucky.auth.exception.handler;
 import com.xy.lucky.auth.exception.ResponseNotIntercept;
 import com.xy.lucky.general.response.domain.Result;
 import com.xy.lucky.general.response.domain.ResultCode;
+import com.xy.lucky.utils.json.JacksonUtils;
 import com.xy.lucky.security.exception.AuthenticationFailException;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,15 @@ import java.rmi.ServerException;
 public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
 
     /**
+     * 自定义认证异常（业务可预期）
+     */
+    @ExceptionHandler(AuthenticationFailException.class)
+    public Result<?> handleAuthenticationFailException(AuthenticationFailException ex) {
+        log.warn("认证失败: code={}, message={}", ex.getResultCode().getCode(), ex.getResultCode().getMessage());
+        return Result.failed(ex.getResultCode());
+    }
+
+    /**
      * 自定义认证异常
      *
      * @param ex
@@ -43,12 +53,8 @@ public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
      */
     @ExceptionHandler(AuthenticationException.class)
     public Result<?> handleAuthenticationException(AuthenticationException ex) {
-        log.error("Authentication error: {}", ex.getMessage(), ex);
-
-        if (ex instanceof AuthenticationFailException e) {
-            return Result.failed(e.getResultCode());
-        }
-        return Result.failed(ResultCode.FAIL, ex.getMessage());
+        log.warn("认证异常: {}", ex.getMessage());
+        return Result.failed(ResultCode.AUTHENTICATION_FAILED);
     }
 
     /**
@@ -60,8 +66,8 @@ public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
     @ExceptionHandler({BindException.class})
     public Result<?> bindExceptionHandler(BindException e) {
         ObjectError objectError = e.getBindingResult().getAllErrors().get(0);
-        log.error("BindException：", e);
-        return Result.failed(objectError.getDefaultMessage());
+        log.warn("参数校验失败: {}", objectError.getDefaultMessage());
+        return Result.failed(ResultCode.BAD_REQUEST.getCode(), objectError.getDefaultMessage());
     }
 
 
@@ -74,7 +80,7 @@ public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
      */
     @ExceptionHandler(SizeLimitExceededException.class)
     public Result<?> sizeLimitExceededExceptionHandler(SizeLimitExceededException e) {
-        log.error("SizeLimitExceededException异常：", e);
+        log.warn("请求数据过大: {}", e.getMessage());
         // "请求数据大小不允许超过10MB"
         return Result.failed(ResultCode.REQUEST_DATA_TOO_LARGE);
     }
@@ -89,9 +95,8 @@ public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
     @ExceptionHandler(value = NullPointerException.class)
     public Result<?> handleNullPointerException(NullPointerException ex) {
         // 对空指针异常的处理逻辑
-        log.error("Authentication error: {}", ex.getMessage(), ex);
-        // 资源未找到
-        return Result.failed(ResultCode.NOT_FOUND);
+        log.error("空指针异常", ex);
+        return Result.failed(ResultCode.INTERNAL_SERVER_ERROR);
     }
 
 
@@ -131,22 +136,19 @@ public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
         return Result.failed(ResultCode.INTERNAL_SERVER_ERROR);
     }
 
-
     @Override
     public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
-        // 判断方法或类上是否存在 @ResponseNotIntercept 注解
-        if (returnType.getDeclaringClass().isAnnotationPresent(ResponseNotIntercept.class) ||
-                returnType.getMethod().isAnnotationPresent(ResponseNotIntercept.class)) {
+        if (returnType.getDeclaringClass().isAnnotationPresent(ResponseNotIntercept.class)) {
+            return false;
+        }
+        if (returnType.getMethod() != null && returnType.getMethod().isAnnotationPresent(ResponseNotIntercept.class)) {
             return false;
         }
         return true;
     }
 
     /**
-     * https://www.cnblogs.com/oldboyooxx/p/10824531.html
-     * string 返回值 序列化异常
-     *
-     * @return
+     * 统一响应封装，确保业务接口返回 Result JSON 结构。
      */
     @SneakyThrows
     @Override
@@ -156,7 +158,11 @@ public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
         if (body instanceof Result) {
             return body;
         }
-        return Result.success(body);
+        Result<?> wrapped = Result.success(body);
+        if (body instanceof String) {
+            return JacksonUtils.toJSONString(wrapped);
+        }
+        return wrapped;
     }
 
 }

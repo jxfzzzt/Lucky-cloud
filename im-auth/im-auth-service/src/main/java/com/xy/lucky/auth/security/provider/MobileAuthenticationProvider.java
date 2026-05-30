@@ -1,23 +1,19 @@
 package com.xy.lucky.auth.security.provider;
 
 import com.xy.lucky.auth.security.domain.AuthRequestContext;
+import com.xy.lucky.auth.security.helper.AuthUserCacheHelper;
 import com.xy.lucky.auth.security.helper.CryptoHelper;
 import com.xy.lucky.auth.security.token.MobileAuthenticationToken;
 import com.xy.lucky.auth.service.SmsCodeService;
-import com.xy.lucky.domain.po.ImUserPo;
 import com.xy.lucky.general.response.domain.ResultCode;
-import com.xy.lucky.rpc.api.database.user.ImUserDubboService;
 import com.xy.lucky.security.exception.AuthenticationFailException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-
-import java.util.Objects;
 
 /**
  * 手机验证码认证提供者
@@ -27,9 +23,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class MobileAuthenticationProvider implements AuthenticationProvider {
 
-    @DubboReference
-    private ImUserDubboService imUserDubboService;
-
+    private final AuthUserCacheHelper authUserCacheHelper;
     private final CryptoHelper cryptoHelper;
     private final SmsCodeService smsCodeService;
 
@@ -45,14 +39,14 @@ public class MobileAuthenticationProvider implements AuthenticationProvider {
         validateInput(phoneNumber, encryptedSmsCode);
         validateSmsCode(phoneNumber, encryptedSmsCode, authentication.getDetails());
 
-        ImUserPo user = getUserByPhoneNumber(phoneNumber);
-        if (Objects.isNull(user)) {
+        AuthUserCacheHelper.AuthUserSnapshot user = getUserByPhoneNumber(phoneNumber);
+        if (user == null) {
             log.warn("用户不存在: phone={}", phoneNumber);
             throw new AuthenticationFailException(ResultCode.ACCOUNT_NOT_FOUND);
         }
 
-        log.info("手机号登录成功: userId={}", user.getUserId());
-        return new MobileAuthenticationToken(user.getUserId(), null);
+        log.debug("手机号登录成功: userId={}", user.userId());
+        return new MobileAuthenticationToken(user.userId(), null);
     }
 
     @Override
@@ -82,8 +76,7 @@ public class MobileAuthenticationProvider implements AuthenticationProvider {
         throw new AuthenticationFailException(ResultCode.CAPTCHA_ERROR);
     }
 
-    private ImUserPo getUserByPhoneNumber(String phoneNumber) {
-        return imUserDubboService.queryOneByMobile(phoneNumber);
+    private AuthUserCacheHelper.AuthUserSnapshot getUserByPhoneNumber(String phoneNumber) {
+        return authUserCacheHelper.requireByMobile(phoneNumber);
     }
 }
-

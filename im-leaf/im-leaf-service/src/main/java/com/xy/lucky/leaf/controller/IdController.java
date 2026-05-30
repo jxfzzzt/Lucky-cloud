@@ -51,7 +51,7 @@ public class IdController {
     public Mono<IMetaId> generateId(
             @Parameter(description = "策略类型") @RequestParam("type") String type,
             @Parameter(description = "业务标识") @RequestParam("key") String key) {
-        return Mono.fromCallable(() -> idService.generateId(type, key));
+        return idService.generateIdAsync(type, key);
     }
 
     /**
@@ -73,6 +73,6 @@ public class IdController {
             @Parameter(description = "策略类型") @RequestParam("type") String type,
             @Parameter(description = "业务标识") @RequestParam("key") String key,
             @Parameter(description = "生成数量") @RequestParam("count") @Min(1) @Max(1000) Integer count) {
-        return Mono.fromCallable(() -> idService.generateIds(type, key, count));
+        return idService.generateIdsAsync(type, key, count);
     }
 }

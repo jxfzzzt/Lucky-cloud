@@ -11,9 +11,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 基于 Nacos 的 Snowflake 机器 ID 分配器。
@@ -39,6 +43,8 @@ public class NacosSnowflakeWorkerIdAllocator {
 
     // 最大 workerId 值（10 位，支持 0-1023）
     private static final long MAX_WORKER_ID = 1023L;
+    private static final Pattern USED_IDS_PATTERN =
+            Pattern.compile("(?m)^\\s*" + Pattern.quote(USED_IDS_KEY) + "\\s*:\\s*(.*)$");
 
     // 重试参数：最大尝试次数和重试间隔（ms）
     private static final int MAX_RETRIES = 10;
@@ -69,7 +75,7 @@ public class NacosSnowflakeWorkerIdAllocator {
             String config = configService.getConfig(NACOS_DATA_ID, NACOS_GROUP, 5000L);
 
             // 解析已用 ID 列表
-            List<Long> usedIds = parseUsedIds(config);
+            List<Long> usedIds = normalizeUsedIds(parseUsedIds(config));
 
             // 找到第一个可用 ID
             Long newId = findAvailableId(usedIds);
@@ -80,14 +86,20 @@ public class NacosSnowflakeWorkerIdAllocator {
             // 创建新列表并排序
             List<Long> newUsedIds = new ArrayList<>(usedIds);
             newUsedIds.add(newId);
-            newUsedIds.sort(Long::compareTo);
+            newUsedIds = normalizeUsedIds(newUsedIds);
 
             // 构建新配置字符串
             String newUsedIdsStr = newUsedIds.stream().map(String::valueOf).collect(Collectors.joining(","));
             String newConfig = buildConfig(newUsedIdsStr);
 
             // 发布更新
-            configService.publishConfig(NACOS_DATA_ID, NACOS_GROUP, newConfig);
+            boolean published = configService.publishConfig(NACOS_DATA_ID, NACOS_GROUP, newConfig);
+            if (!published) {
+                log.warn("Publish config failed when allocating workerId (attempt {}/{}), retrying...",
+                        attempt + 1, MAX_RETRIES);
+                sleepQuietly(RETRY_DELAY_MS);
+                continue;
+            }
 
             // 验证：重新读取并检查是否包含新 ID
             String verifyConfig = configService.getConfig(NACOS_DATA_ID, NACOS_GROUP, 5000L);
@@ -121,7 +133,7 @@ public class NacosSnowflakeWorkerIdAllocator {
                 String config = configService.getConfig(NACOS_DATA_ID, NACOS_GROUP, 5000L);
 
                 // 解析已用 ID 列表
-                List<Long> usedIds = parseUsedIds(config);
+                List<Long> usedIds = normalizeUsedIds(parseUsedIds(config));
                 if (!usedIds.contains(workerId)) {
                     log.info("workerId {} already released", workerId);
                     return;
@@ -129,15 +141,21 @@ public class NacosSnowflakeWorkerIdAllocator {
 
                 // 创建新列表
                 List<Long> newUsedIds = new ArrayList<>(usedIds);
-                newUsedIds.remove(workerId);
-                newUsedIds.sort(Long::compareTo);
+                newUsedIds.removeIf(id -> id.equals(workerId));
+                newUsedIds = normalizeUsedIds(newUsedIds);
 
                 // 构建新配置字符串（空列表时保持键为空值）
                 String newUsedIdsStr = newUsedIds.stream().map(String::valueOf).collect(Collectors.joining(","));
                 String newConfig = buildConfig(newUsedIdsStr);
 
                 // 发布更新
-                configService.publishConfig(NACOS_DATA_ID, NACOS_GROUP, newConfig);
+                boolean published = configService.publishConfig(NACOS_DATA_ID, NACOS_GROUP, newConfig);
+                if (!published) {
+                    log.warn("Publish config failed when releasing workerId {} (attempt {}/{}), retrying...",
+                            workerId, attempt + 1, MAX_RETRIES);
+                    sleepQuietly(RETRY_DELAY_MS);
+                    continue;
+                }
 
                 // 验证：重新读取并检查是否移除
                 String verifyConfig = configService.getConfig(NACOS_DATA_ID, NACOS_GROUP, 5000L);
@@ -164,18 +182,43 @@ public class NacosSnowflakeWorkerIdAllocator {
      * @return 已用 ID 列表（空列表如果无配置或键不存在）
      */
     private List<Long> parseUsedIds(String config) {
-        if (config == null || config.isEmpty() || !config.contains(USED_IDS_KEY)) {
+        if (config == null || config.isBlank()) {
             return new ArrayList<>();
         }
-        // 分割键值（支持空格），移除多余空白
-        String[] parts = config.split(USED_IDS_KEY + "\\s*:\\s*", 2);
-        if (parts.length < 2 || parts[1].trim().isEmpty()) {
+        Matcher matcher = USED_IDS_PATTERN.matcher(config);
+        if (!matcher.find()) {
             return new ArrayList<>();
         }
-        String idsStr = parts[1].trim().replaceAll("\\s+", "");
+        String idsStr = matcher.group(1);
+        if (idsStr == null || idsStr.isBlank()) {
+            return new ArrayList<>();
+        }
         return Stream.of(idsStr.split(","))
+                .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .map(Long::parseLong)
+                .map(this::tryParseWorkerId)
+                .filter(id -> id != null)
+                .collect(Collectors.toList());
+    }
+
+    private Long tryParseWorkerId(String token) {
+        try {
+            long id = Long.parseLong(token);
+            if (id < 0 || id > MAX_WORKER_ID) {
+                log.warn("Ignore out-of-range workerId token: {}", token);
+                return null;
+            }
+            return id;
+        } catch (NumberFormatException ex) {
+            log.warn("Ignore invalid workerId token: {}", token);
+            return null;
+        }
+    }
+
+    private List<Long> normalizeUsedIds(List<Long> ids) {
+        return ids.stream()
+                .distinct()
+                .sorted(Long::compareTo)
                 .collect(Collectors.toList());
     }
 
@@ -186,8 +229,9 @@ public class NacosSnowflakeWorkerIdAllocator {
      * @return 可用 ID 或 null（如果全部分配）
      */
     private Long findAvailableId(List<Long> usedIds) {
+        Set<Long> usedSet = new HashSet<>(usedIds);
         for (long i = 0; i <= MAX_WORKER_ID; i++) {
-            if (!usedIds.contains(i)) {
+            if (!usedSet.contains(i)) {
                 return i;
             }
         }

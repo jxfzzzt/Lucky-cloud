@@ -18,6 +18,14 @@ public interface ImGroupDubboService {
     List<ImGroupPo> queryList(String userId);
 
     /**
+     * 按群ID列表批量获取群信息
+     *
+     * @param groupIdList 群ID列表
+     * @return 群信息列表
+     */
+    List<ImGroupPo> queryListByIds(List<String> groupIdList);
+
+    /**
      * 获取群信息
      *
      * @param groupId 群ID

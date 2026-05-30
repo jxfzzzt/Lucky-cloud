@@ -54,7 +54,7 @@ public class DefaultMessageLifecycleOrchestrator implements MessageLifecycleOrch
     private final OutboxRecordService outboxRecordService;
     private final MessageMetricsRecorder messageMetricsRecorder;
     private final RedisTemplate<String, Object> redisTemplate;
-    private final BlockingQueue<MessageDispatchTask> dispatchQueue = new LinkedBlockingQueue<>(10000);
+    private BlockingQueue<MessageDispatchTask> dispatchQueue;
     private final Map<String, MessageDispatchTask> pendingTaskMap = new ConcurrentHashMap<>();
     private final Map<String, Long> pendingTaskStartMap = new ConcurrentHashMap<>();
 
@@ -73,6 +73,9 @@ public class DefaultMessageLifecycleOrchestrator implements MessageLifecycleOrch
     @Value("${message.dispatch.worker-size:4}")
     private int workerSize;
 
+    @Value("${message.dispatch.queue-capacity:10000}")
+    private int queueCapacity;
+
     @Value("${message.dispatch.retry-wheel.tick-ms:100}")
     private long retryWheelTickMs;
 
@@ -85,6 +88,11 @@ public class DefaultMessageLifecycleOrchestrator implements MessageLifecycleOrch
     @Value("${message.dispatch.confirm-timeout-check-interval-ms:1000}")
     private long confirmTimeoutCheckIntervalMs;
 
+    @Value("${message.dispatch.connection-count-refresh-interval-seconds:60}")
+    private long connectionCountRefreshIntervalSeconds;
+    @Value("${message.dispatch.connection-count-scan-enabled:false}")
+    private boolean connectionCountScanEnabled;
+
     private RabbitTemplate rabbitTemplate;
     private LightweightTimeWheel retryTimeWheel;
 
@@ -93,11 +101,19 @@ public class DefaultMessageLifecycleOrchestrator implements MessageLifecycleOrch
      */
     @PostConstruct
     public void init() {
+        int capacity = Math.max(1000, queueCapacity);
+        dispatchQueue = new LinkedBlockingQueue<>(capacity);
         rabbitTemplate = rabbitTemplateFactory.createRabbitTemplate(this::handleConfirm, this::handleReturn);
         messageMetricsRecorder.bindDispatchQueue(dispatchQueue);
         retryTimeWheel = new LightweightTimeWheel(retryWheelTickMs, retryWheelSlots, scheduledExecutor, messagePushExecutor);
         retryTimeWheel.start();
-        scheduledExecutor.scheduleWithFixedDelay(this::refreshConnectionCount, 0, 10, TimeUnit.SECONDS);
+        if (connectionCountScanEnabled && connectionCountRefreshIntervalSeconds > 0) {
+            long refreshSeconds = Math.max(10L, connectionCountRefreshIntervalSeconds);
+            scheduledExecutor.scheduleWithFixedDelay(this::refreshConnectionCount, 0, refreshSeconds, TimeUnit.SECONDS);
+        } else {
+            log.info("在线连接数 SCAN 统计已禁用: enabled={}, intervalSeconds={}",
+                    connectionCountScanEnabled, connectionCountRefreshIntervalSeconds);
+        }
         scheduledExecutor.scheduleWithFixedDelay(this::checkPendingTimeoutTasks,
                 Math.max(500L, confirmTimeoutCheckIntervalMs),
                 Math.max(500L, confirmTimeoutCheckIntervalMs),
@@ -106,8 +122,8 @@ public class DefaultMessageLifecycleOrchestrator implements MessageLifecycleOrch
         for (int i = 0; i < size; i++) {
             messagePushExecutor.execute(this::dispatchLoop);
         }
-        log.info("消息生命周期编排器启动完成: workerSize={}, maxRetry={}, retryDelayMs={}, retryWheelTickMs={}, retryWheelSlots={}",
-                size, maxRetry, retryDelayMs, retryWheelTickMs, retryWheelSlots);
+        log.info("消息生命周期编排器启动完成: workerSize={}, queueCapacity={}, maxRetry={}, retryDelayMs={}, retryWheelTickMs={}, retryWheelSlots={}",
+                size, capacity, maxRetry, retryDelayMs, retryWheelTickMs, retryWheelSlots);
     }
 
     /**

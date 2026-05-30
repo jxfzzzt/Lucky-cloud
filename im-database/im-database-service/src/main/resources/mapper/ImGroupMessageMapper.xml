@@ -32,8 +32,22 @@
     </resultMap>
 
 
-    <select id="selectGroupMessageByGroupId" resultType="com.xy.lucky.domain.po.ImGroupMessagePo">
-        select *
+    <select id="selectGroupMessageByGroupId" resultMap="ImGroupMessageResultMap">
+        select igm.message_id,
+               igm.group_id,
+               igm.from_id,
+               igm.message_body,
+               igm.message_time,
+               igm.message_content_type,
+               igm.extra,
+               igm.reply_to,
+               igm.sequence,
+               igm.message_random,
+               igm.create_time,
+               igm.update_time,
+               igm.del_flag,
+               igm.version,
+               igms.read_status
         from im_group_message igm
                  INNER JOIN im_group_message_status igms
                             on igm.message_id = igms.message_id and igm.group_id = igms.group_id
@@ -43,8 +57,22 @@
         order by igm.message_time
     </select>
 
-    <select id="selectLastGroupMessage" resultType="com.xy.lucky.domain.po.ImGroupMessagePo">
-        select *
+    <select id="selectLastGroupMessage" resultMap="ImGroupMessageResultMap">
+        select igm.message_id,
+               igm.group_id,
+               igm.from_id,
+               igm.message_body,
+               igm.message_time,
+               igm.message_content_type,
+               igm.extra,
+               igm.reply_to,
+               igm.sequence,
+               igm.message_random,
+               igm.create_time,
+               igm.update_time,
+               igm.del_flag,
+               igm.version,
+               igms.read_status
         from im_group_message igm
                  INNER JOIN im_group_message_status igms
                             on igm.message_id = igms.message_id and igm.group_id = igms.group_id
@@ -53,8 +81,22 @@
         order by igm.message_time desc limit 1
     </select>
 
-    <select id="selectGroupMessage" resultType="com.xy.lucky.domain.po.ImGroupMessagePo">
-        SELECT *
+    <select id="selectGroupMessage" resultMap="ImGroupMessageResultMap">
+        SELECT igm.message_id,
+               igm.group_id,
+               igm.from_id,
+               igm.message_body,
+               igm.message_time,
+               igm.message_content_type,
+               igm.extra,
+               igm.reply_to,
+               igm.sequence,
+               igm.message_random,
+               igm.create_time,
+               igm.update_time,
+               igm.del_flag,
+               igm.version,
+               igms.read_status
         FROM im_group_message igm
                  INNER JOIN im_group_message_status igms ON igm.message_id = igms.message_id
             AND igm.group_id = igms.group_id

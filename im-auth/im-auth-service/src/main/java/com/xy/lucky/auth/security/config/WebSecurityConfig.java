@@ -23,6 +23,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -88,21 +89,21 @@ public class WebSecurityConfig {
         http.csrf(AbstractHttpConfigurer::disable);
 
         // 禁用会话管理，设置为无状态，防止 Spring Security 创建会话
-        http.sessionManagement(configurer ->
-                configurer.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-        );
+//        http.sessionManagement(configurer ->
+//                configurer.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+//        );
 
-        http.exceptionHandling(customizer ->
-                customizer
-                        .authenticationEntryPoint((request, response, authException) -> {
-                            response.setStatus(401);
-                            ResponseUtil.out(response, Result.failed(ResultCode.UNAUTHORIZED));
-                        })
-                        .accessDeniedHandler((request, response, accessDeniedException) -> {
-                            response.setStatus(403);
-                            ResponseUtil.out(response, Result.failed(ResultCode.NO_PERMISSION));
-                        })
-        );
+//        http.exceptionHandling(customizer ->
+//                customizer
+//                        .authenticationEntryPoint((request, response, authException) -> {
+//                            response.setStatus(401);
+//                            ResponseUtil.out(response, Result.failed(ResultCode.UNAUTHORIZED));
+//                        })
+//                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+//                            response.setStatus(403);
+//                            ResponseUtil.out(response, Result.failed(ResultCode.NO_PERMISSION));
+//                        })
+//        );
 
         // 配置 JWT 校验过滤器，在用户名密码过滤器之前执行
         http.addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -110,14 +111,14 @@ public class WebSecurityConfig {
         // 配置跨域支持
         http.cors(cors -> cors.configurationSource(configurationSource()));
 
-        http.headers(headers -> {
-            headers.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'"));
-            headers.httpStrictTransportSecurity(hsts -> hsts.includeSubDomains(true).maxAgeInSeconds(31536000));
-            headers.frameOptions(frame -> frame.sameOrigin());
-            headers.contentTypeOptions(withDefaults -> {
-            });
-            headers.referrerPolicy(referrer -> referrer.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER));
-        });
+//        http.headers(headers -> {
+//            headers.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'"));
+//            headers.httpStrictTransportSecurity(hsts -> hsts.includeSubDomains(true).maxAgeInSeconds(31536000));
+//            headers.frameOptions(frame -> frame.sameOrigin());
+//            headers.contentTypeOptions(withDefaults -> {
+//            });
+//            headers.referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER));
+//        });
 
         return http.build(); // 返回构建后的安全过滤链
     }

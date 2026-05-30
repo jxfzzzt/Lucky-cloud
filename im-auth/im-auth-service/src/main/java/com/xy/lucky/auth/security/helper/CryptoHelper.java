@@ -24,7 +24,7 @@ public class CryptoHelper {
      * 解密密文（支持新旧密钥平滑过渡）
      */
     public String decrypt(String encryptedText) {
-        String normalized = encryptedText.replaceAll(" ", "+");
+        String normalized = encryptedText.replace(' ', '+');
 
         // 优先使用当前密钥解密
         try {

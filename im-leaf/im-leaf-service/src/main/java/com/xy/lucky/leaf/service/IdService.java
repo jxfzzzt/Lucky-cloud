@@ -12,6 +12,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -76,6 +79,10 @@ public class IdService implements ImIdDubboService {
         return strategyContext.getStrategy(type).getId(key);
     }
 
+    public Mono<IMetaId> generateIdAsync(String type, String key) {
+        return strategyContext.getStrategy(type).get(key);
+    }
+
     /**
      * 根据类型和业务标识批量生成ID
      *
@@ -93,6 +100,12 @@ public class IdService implements ImIdDubboService {
             }
         }
         return ids;
+    }
+
+    public Mono<List<IMetaId>> generateIdsAsync(String type, String key, Integer count) {
+        return Flux.range(0, count)
+                .concatMap(i -> generateIdAsync(type, key))
+                .collectList();
     }
 
     /**
@@ -117,6 +130,23 @@ public class IdService implements ImIdDubboService {
         return "UID" + System.currentTimeMillis() / 1000 + String.format("%06d", increment % 1000);
     }
 
+    public Mono<String> generateUserIdAsync() {
+        String type = "user";
+        String key = "id:segment:" + type;
+        return reactiveRedisTemplate.opsForValue().increment(key, 1)
+                .switchIfEmpty(Mono.error(new ServiceException("Redis ID生成失败")))
+                .flatMap(increment -> {
+                    Mono<Long> chain = (increment % 1000 == 0)
+                            ? Mono.fromCallable(() -> {
+                                loadNewSegment(type);
+                                return increment;
+                            }).subscribeOn(Schedulers.boundedElastic())
+                            : Mono.just(increment);
+                    return chain.map(value ->
+                            "UID" + System.currentTimeMillis() / 1000 + String.format("%06d", value % 1000));
+                });
+    }
+
     /**
      * 生成消息ID（Redis原子递增）
      *
@@ -130,6 +160,13 @@ public class IdService implements ImIdDubboService {
             seq = 0L;
         }
         return String.format("MSG%02d%tM%S%04d", machineId, System.currentTimeMillis(), seq % 10000);
+    }
+
+    public Mono<String> generateMsgIdAsync(int machineId) {
+        String key = "id:msg:" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        return reactiveRedisTemplate.opsForValue().increment(key)
+                .defaultIfEmpty(0L)
+                .map(seq -> String.format("MSG%02d%tM%S%04d", machineId, System.currentTimeMillis(), seq % 10000));
     }
 
     /**

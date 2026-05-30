@@ -1,13 +1,14 @@
 package com.xy.lucky.gateway.filter;
 
 import com.xy.lucky.gateway.config.GatewayAuthProperties;
-import com.xy.lucky.gateway.plugin.GatewayPlugin;
-import com.xy.lucky.gateway.plugin.GatewayPluginChain;
 import com.xy.lucky.gateway.utils.IPAddressUtil;
 import com.xy.lucky.gateway.utils.ResponseUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
@@ -20,31 +21,22 @@ import java.time.Duration;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class BlackListFilter implements GatewayPlugin {
+public class BlackListFilter implements GlobalFilter, Ordered {
 
     private static final String KEY_PREFIX = "im-gateway:ip:guard:";
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
+    private static final int ORDER = -200;
 
     private final GatewayAuthProperties properties;
     private final ReactiveStringRedisTemplate reactiveStringRedisTemplate;
 
     @Override
-    public String getId() {
-        return "ip-guard";
-    }
-
-    @Override
-    public String getVersion() {
-        return "1.0.0";
-    }
-
-    @Override
     public int getOrder() {
-        return -200;
+        return ORDER;
     }
 
     @Override
-    public Mono<Void> apply(ServerWebExchange exchange, GatewayPluginChain chain) {
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         GatewayAuthProperties.IpGuard config = properties.getIpGuard();
         if (!properties.isEnabled() || !config.isEnabled()) {
             return chain.filter(exchange);

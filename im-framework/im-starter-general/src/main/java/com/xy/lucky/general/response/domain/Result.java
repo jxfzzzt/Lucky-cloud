@@ -17,7 +17,6 @@ import java.time.Instant;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL) // 排除 null 字段
 public class Result<T> {
 
     /**
