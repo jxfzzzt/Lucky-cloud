@@ -6,6 +6,7 @@ import com.xy.lucky.core.enums.IMessageReadStatus;
 import com.xy.lucky.core.enums.IMessageType;
 import com.xy.lucky.core.model.IMGroupMessage;
 import com.xy.lucky.core.model.IMessage;
+import com.xy.lucky.general.response.service.I18nService;
 import com.xy.lucky.rpc.api.message.MessageDubboService;
 import com.xy.lucky.utils.time.DateTimeUtils;
 import org.apache.dubbo.config.annotation.DubboReference;
@@ -88,7 +89,9 @@ public class MuteExpireListener extends KeyExpirationEventMessageListener {
                         .messageTime(DateTimeUtils.getCurrentUTCTimestamp())
                         .readStatus(IMessageReadStatus.UNREAD.getCode())
                         .messageBody(new IMessage.TextMessageBody()
-                                .setText(userId == null ? "群禁言已解除" : "用户已解除禁言"))
+                                .setText(userId == null
+                                        ? I18nService.getMessage("mute.expire.group_all")
+                                        : I18nService.getMessage("mute.expire.user")))
                         .build()
         );
     }

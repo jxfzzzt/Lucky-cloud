@@ -4,9 +4,11 @@ import com.xy.lucky.business.common.LockExecutor;
 import com.xy.lucky.business.domain.dto.UserDto;
 import com.xy.lucky.business.domain.mapper.UserDataBeanMapper;
 import com.xy.lucky.business.domain.vo.UserVo;
+import com.xy.lucky.business.exception.BusinessResultCode;
 import com.xy.lucky.business.exception.MessageException;
 import com.xy.lucky.business.service.UserService;
 import com.xy.lucky.domain.po.ImUserDataPo;
+import com.xy.lucky.general.response.service.I18nService;
 import com.xy.lucky.rpc.api.database.user.ImUserDataDubboService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -81,10 +83,11 @@ public class UserServiceImpl implements UserService {
         ImUserDataPo po = userDataBeanMapper.toImUserDataPo(dto);
 
         if (!userDataDubboService.creat(po)) {
-            throw new MessageException("创建用户失败");
+            throw new MessageException(BusinessResultCode.USER_CREATE_FAILED);
         }
 
-        log.info("创建用户成功: userId={}", dto.getUserId());
+        log.info(I18nService.getMessage("log.user.create_success",
+                new Object[]{dto.getUserId()}));
         return userDataBeanMapper.toUserVo(po);
     }
 
@@ -100,11 +103,12 @@ public class UserServiceImpl implements UserService {
             ImUserDataPo po = userDataBeanMapper.toImUserDataPo(dto);
 
             if (!userDataDubboService.modify(po)) {
-                throw new MessageException("更新用户失败");
+                throw new MessageException(BusinessResultCode.USER_UPDATE_FAILED);
             }
 
-            log.info("更新用户成功: userId={}", dto.getUserId());
-                return true;
+            log.info(I18nService.getMessage("log.user.update_success",
+                    new Object[]{dto.getUserId()}));
+            return true;
         });
     }
 
@@ -118,10 +122,11 @@ public class UserServiceImpl implements UserService {
     public Boolean delete(String userId) {
         return lockExecutor.execute(LOCK_PREFIX + "delete:" + userId, () -> {
             if (!Boolean.TRUE.equals(userDataDubboService.removeOne(userId))) {
-                throw new MessageException("删除用户失败");
+                throw new MessageException(BusinessResultCode.USER_DELETE_FAILED);
             }
 
-            log.info("删除用户成功: userId={}", userId);
+            log.info(I18nService.getMessage("log.user.delete_success",
+                    new Object[]{userId}));
             return true;
         });
     }

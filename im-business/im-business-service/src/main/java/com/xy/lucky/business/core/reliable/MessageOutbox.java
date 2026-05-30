@@ -1,9 +1,10 @@
 package com.xy.lucky.business.core.reliable;
 
-import com.xy.lucky.domain.po.IMOutboxPo;
-import com.xy.lucky.rpc.api.database.outbox.IMOutboxDubboService;
 import com.xy.lucky.business.core.reliable.domain.OutboxMessage;
 import com.xy.lucky.business.core.reliable.domain.OutboxStatus;
+import com.xy.lucky.domain.po.IMOutboxPo;
+import com.xy.lucky.general.response.service.I18nService;
+import com.xy.lucky.rpc.api.database.outbox.IMOutboxDubboService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
@@ -102,7 +103,8 @@ public class MessageOutbox {
         });
         retryExecutor.submit(this::retryLoop);
 
-        log.info("MessageOutbox 初始化完成，maxRetry={}, retryDelay={}ms", maxRetry, retryDelayMs);
+        log.info(I18nService.getMessage("log.outbox.init",
+                new Object[]{maxRetry, retryDelayMs}));
     }
 
     @PreDestroy
@@ -148,10 +150,12 @@ public class MessageOutbox {
             CorrelationData correlationData = new CorrelationData(messageId);
             rabbitTemplate.convertAndSend(exchange, routingKey, payload, correlationData);
             sentCount.increment();
-            log.debug("消息已发送: messageId={}, routingKey={}", messageId, routingKey);
+            log.debug(I18nService.getMessage("log.outbox.send_success",
+                    new Object[]{messageId, routingKey}));
             return true;
         } catch (Exception e) {
-            log.error("消息发送失败: messageId={}, error={}", messageId, e.getMessage());
+            log.error(I18nService.getMessage("log.outbox.send_failed",
+                    new Object[]{messageId, e.getMessage()}));
             // 加入重试队列
             scheduleRetry(outbox);
             return false;
@@ -164,19 +168,22 @@ public class MessageOutbox {
     public void handleConfirm(String messageId, boolean ack, String cause) {
         OutboxMessage outbox = pendingMessages.remove(messageId);
         if (outbox == null) {
-            log.debug("确认回调：未找到消息 messageId={}", messageId);
+            log.debug(I18nService.getMessage("log.outbox.confirm_not_found",
+                    new Object[]{messageId}));
             return;
         }
 
         if (ack) {
             outbox.setStatus(OutboxStatus.CONFIRMED);
             confirmedCount.increment();
-            log.debug("消息确认成功: messageId={}", messageId);
+            log.debug(I18nService.getMessage("log.outbox.confirm_success",
+                    new Object[]{messageId}));
 
             // 异步更新数据库状态
             updateOutboxStatusAsync(outbox);
         } else {
-            log.warn("消息确认失败: messageId={}, cause={}", messageId, cause);
+            log.warn(I18nService.getMessage("log.outbox.confirm_failed",
+                    new Object[]{messageId, cause}));
             outbox.setStatus(OutboxStatus.FAILED);
             outbox.setErrorMessage(cause);
             failedCount.increment();
@@ -192,7 +199,8 @@ public class MessageOutbox {
     public void handleReturn(String messageId, String replyText) {
         OutboxMessage outbox = pendingMessages.remove(messageId);
         if (outbox != null) {
-            log.warn("消息路由失败: messageId={}, reason={}", messageId, replyText);
+            log.warn(I18nService.getMessage("log.outbox.route_failed",
+                    new Object[]{messageId, replyText}));
             outbox.setStatus(OutboxStatus.RETURNED);
             outbox.setErrorMessage(replyText);
             failedCount.increment();
@@ -207,7 +215,8 @@ public class MessageOutbox {
      */
     private void scheduleRetry(OutboxMessage outbox) {
         if (outbox.getRetryCount() >= maxRetry) {
-            log.error("消息达到最大重试次数，进入死信: messageId={}", outbox.getMessageId());
+            log.error(I18nService.getMessage("log.outbox.dead_letter",
+                    new Object[]{outbox.getMessageId()}));
             outbox.setStatus(OutboxStatus.DEAD);
             updateOutboxStatusAsync(outbox);
             return;
@@ -220,8 +229,8 @@ public class MessageOutbox {
         long delay = retryDelayMs * (1L << (outbox.getRetryCount() - 1));
         retryQueue.offer(new DelayedMessage(outbox, delay));
 
-        log.info("消息加入重试队列: messageId={}, retryCount={}, delay={}ms",
-                outbox.getMessageId(), outbox.getRetryCount(), delay);
+        log.info(I18nService.getMessage("log.outbox.requeue",
+                new Object[]{outbox.getMessageId(), outbox.getRetryCount(), delay}));
     }
 
     /**
@@ -240,7 +249,8 @@ public class MessageOutbox {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                log.error("持久化异常: {}", e.getMessage());
+                log.error(I18nService.getMessage("log.outbox.persist_exception",
+                        new Object[]{e.getMessage()}));
             }
         }
     }
@@ -259,7 +269,8 @@ public class MessageOutbox {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                log.error("重试处理异常: {}", e.getMessage());
+                log.error(I18nService.getMessage("log.outbox.retry_exception",
+                        new Object[]{e.getMessage()}));
             }
         }
     }
@@ -269,8 +280,8 @@ public class MessageOutbox {
      */
     private void retryMessage(OutboxMessage outbox) {
         retryCount.increment();
-        log.info("重试发送消息: messageId={}, retryCount={}",
-                outbox.getMessageId(), outbox.getRetryCount());
+        log.info(I18nService.getMessage("log.outbox.retry",
+                new Object[]{outbox.getMessageId(), outbox.getRetryCount()}));
 
         pendingMessages.put(outbox.getMessageId(), outbox);
 
@@ -283,7 +294,8 @@ public class MessageOutbox {
                     correlationData
             );
         } catch (Exception e) {
-            log.error("重试发送失败: messageId={}, error={}", outbox.getMessageId(), e.getMessage());
+            log.error(I18nService.getMessage("log.outbox.retry_failed",
+                    new Object[]{outbox.getMessageId(), e.getMessage()}));
             scheduleRetry(outbox);
         }
     }
@@ -301,7 +313,8 @@ public class MessageOutbox {
             po.setStatus(String.valueOf(msg.getStatus().getCode()));
             // outboxDubboService.insert(po);
         } catch (Exception e) {
-            log.error("持久化消息失败: messageId={}, error={}", msg.getMessageId(), e.getMessage());
+            log.error(I18nService.getMessage("log.outbox.persist_failed",
+                    new Object[]{msg.getMessageId(), e.getMessage()}));
         }
     }
 
@@ -313,7 +326,8 @@ public class MessageOutbox {
             try {
                 // outboxDubboService.modifyStatus(null, String.valueOf(msg.getStatus().getCode()), msg.getRetryCount());
             } catch (Exception e) {
-                log.error("更新消息状态失败: messageId={}", msg.getMessageId(), e);
+                log.error(I18nService.getMessage("log.outbox.update_status_failed",
+                        new Object[]{msg.getMessageId()}), e);
             }
         });
     }
@@ -322,8 +336,8 @@ public class MessageOutbox {
      * 刷新待处理消息
      */
     private void flushPending() {
-        log.info("刷新待处理消息: pending={}, persist={}, retry={}",
-                pendingMessages.size(), persistQueue.size(), retryQueue.size());
+        log.info(I18nService.getMessage("log.outbox.flush",
+                new Object[]{pendingMessages.size(), persistQueue.size(), retryQueue.size()}));
 
         // 持久化所有待处理消息
         OutboxMessage msg;
@@ -340,7 +354,8 @@ public class MessageOutbox {
         long now = System.currentTimeMillis();
         pendingMessages.forEach((messageId, outbox) -> {
             if (now - outbox.getCreateTime() > confirmTimeoutMs) {
-                log.warn("消息确认超时: messageId={}", messageId);
+                log.warn(I18nService.getMessage("log.outbox.confirm_timeout",
+                        new Object[]{messageId}));
                 pendingMessages.remove(messageId);
                 scheduleRetry(outbox);
             }
@@ -355,7 +370,8 @@ public class MessageOutbox {
         try {
             List<IMOutboxPo> pendingList = outboxDubboService.queryList();
             if (pendingList != null && !pendingList.isEmpty()) {
-                log.info("扫描到 {} 条待处理消息", pendingList.size());
+                log.info(I18nService.getMessage("log.outbox.scan_count",
+                        new Object[]{pendingList.size()}));
                 for (IMOutboxPo po : pendingList) {
                     OutboxMessage msg = new OutboxMessage()
                             .setMessageId(po.getMessageId())
@@ -372,7 +388,8 @@ public class MessageOutbox {
                 }
             }
         } catch (Exception e) {
-            log.error("扫描待处理消息异常: {}", e.getMessage());
+            log.error(I18nService.getMessage("log.outbox.scan_error",
+                    new Object[]{e.getMessage()}));
         }
     }
 

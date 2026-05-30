@@ -1,5 +1,6 @@
 package com.xy.lucky.business.config;
 
+import com.xy.lucky.general.response.service.I18nService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -47,7 +48,8 @@ public class ThreadPoolConfig {
         ThreadFactory factory = Thread.ofVirtual()
                 .name("im-virtual-", 1)
                 .uncaughtExceptionHandler((thread, throwable) -> {
-                    log.error("虚拟线程[{}]未捕获异常: {}", thread.getName(), throwable.getMessage(), throwable);
+                    log.error(I18nService.getMessage("log.thread.uncaught_virtual",
+                            new Object[]{thread.getName(), throwable.getMessage()}), throwable);
                 })
                 .factory();
 
@@ -80,7 +82,8 @@ public class ThreadPoolConfig {
             Thread t = new Thread(r, "im-cpu-" + threadCounter.incrementAndGet());
             t.setDaemon(true);
             t.setUncaughtExceptionHandler((thread, ex) ->
-                    log.error("CPU线程[{}]未捕获异常: {}", thread.getName(), ex.getMessage(), ex));
+                    log.error(I18nService.getMessage("log.thread.uncaught_cpu",
+                            new Object[]{thread.getName(), ex.getMessage()}), ex));
             return t;
         };
 
@@ -116,8 +119,8 @@ public class ThreadPoolConfig {
 
         // 自定义拒绝策略：记录日志并尝试执行
         RejectedExecutionHandler rejectedHandler = (r, executor) -> {
-            log.warn("消息推送任务被拒绝，队列已满: queueSize={}, activeCount={}",
-                    executor.getQueue().size(), executor.getActiveCount());
+            log.warn(I18nService.getMessage("log.thread.rejected",
+                    new Object[]{executor.getQueue().size(), executor.getActiveCount()}));
             // 尝试用调用者线程执行
             if (!executor.isShutdown()) {
                 r.run();

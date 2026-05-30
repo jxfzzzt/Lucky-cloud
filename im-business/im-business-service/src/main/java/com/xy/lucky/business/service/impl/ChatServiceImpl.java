@@ -4,11 +4,13 @@ import com.xy.lucky.business.common.LockExecutor;
 import com.xy.lucky.business.domain.dto.ChatDto;
 import com.xy.lucky.business.domain.mapper.ChatBeanMapper;
 import com.xy.lucky.business.domain.vo.ChatVo;
+import com.xy.lucky.business.exception.BusinessResultCode;
 import com.xy.lucky.business.exception.ChatException;
 import com.xy.lucky.business.service.ChatService;
 import com.xy.lucky.core.enums.IMStatus;
 import com.xy.lucky.core.enums.IMessageReadStatus;
 import com.xy.lucky.core.enums.IMessageType;
+import com.xy.lucky.general.response.service.I18nService;
 import com.xy.lucky.domain.po.ImChatPo;
 import com.xy.lucky.domain.po.ImGroupMessagePo;
 import com.xy.lucky.domain.po.ImGroupMessageStatusPo;
@@ -68,13 +70,13 @@ public class ChatServiceImpl implements ChatService {
         lockExecutor.execute(lockKey, () -> {
             IMessageType type = IMessageType.getByCode(dto.getChatType());
             if (type == null) {
-                throw new ChatException("不支持的消息类型");
+                throw new ChatException(BusinessResultCode.CHAT_UNSUPPORTED_TYPE);
             }
 
             switch (type) {
                 case SINGLE_MESSAGE -> markSingleMessageRead(dto);
                 case GROUP_MESSAGE -> markGroupMessageRead(dto);
-                default -> throw new ChatException("不支持的消息类型");
+                default -> throw new ChatException(BusinessResultCode.CHAT_UNSUPPORTED_TYPE);
             }
         });
     }
@@ -149,10 +151,11 @@ public class ChatServiceImpl implements ChatService {
                 .setIsTop(IMStatus.NO.getCode());
 
         if (!chatDubboService.creat(chatPo)) {
-            throw new ChatException("创建会话失败");
+            throw new ChatException(BusinessResultCode.CHAT_CREATE_FAILED);
         }
 
-        log.info("创建会话成功: chatId={}, from={}, to={}", chatPo.getChatId(), dto.getFromId(), dto.getToId());
+        log.info(I18nService.getMessage("log.chat.create_success",
+                new Object[]{chatPo.getChatId(), dto.getFromId(), dto.getToId()}));
         return chatPo;
     }
 

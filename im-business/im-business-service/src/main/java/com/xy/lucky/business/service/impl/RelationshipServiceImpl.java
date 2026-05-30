@@ -8,6 +8,7 @@ import com.xy.lucky.business.domain.mapper.GroupBeanMapper;
 import com.xy.lucky.business.domain.mapper.UserDataBeanMapper;
 import com.xy.lucky.business.domain.vo.FriendVo;
 import com.xy.lucky.business.domain.vo.FriendshipRequestVo;
+import com.xy.lucky.business.exception.BusinessResultCode;
 import com.xy.lucky.business.exception.MessageException;
 import com.xy.lucky.business.service.RelationshipService;
 import com.xy.lucky.core.enums.IMApproveStatus;
@@ -17,6 +18,7 @@ import com.xy.lucky.domain.po.ImFriendshipPo;
 import com.xy.lucky.domain.po.ImFriendshipRequestPo;
 import com.xy.lucky.domain.po.ImGroupPo;
 import com.xy.lucky.domain.po.ImUserDataPo;
+import com.xy.lucky.general.response.service.I18nService;
 import com.xy.lucky.rpc.api.database.friend.ImFriendshipDubboService;
 import com.xy.lucky.rpc.api.database.friend.ImFriendshipRequestDubboService;
 import com.xy.lucky.rpc.api.database.group.ImGroupDubboService;
@@ -163,7 +165,7 @@ public class RelationshipServiceImpl implements RelationshipService {
 
         ImUserDataPo userData = userDataDubboService.queryOne(toId);
         if (userData == null) {
-            throw new MessageException("用户不存在");
+            throw new MessageException(BusinessResultCode.FRIEND_USER_NOT_FOUND);
         }
 
         FriendVo vo = userDataBeanMapper.toFriendVo(userData);
@@ -239,14 +241,16 @@ public class RelationshipServiceImpl implements RelationshipService {
                         request.setRemark(dto.getRemark());
                         request.setUpdateTime(DateTimeUtils.getCurrentUTCTimestamp());
                         friendshipRequestDubboService.modify(request);
-                        log.debug("更新好友请求: from={}, to={}", dto.getFromId(), dto.getToId());
-                        return "添加好友请求成功";
+                        log.debug(I18nService.getMessage("log.friend.request_update",
+                                new Object[]{dto.getFromId(), dto.getToId()}));
+                        return I18nService.getMessage("friend.request_add_success");
                     })
                     .orElseGet(() -> {
                         ImFriendshipRequestPo request = buildFriendRequest(dto);
                         friendshipRequestDubboService.creat(request);
-                        log.info("创建好友请求: from={}, to={}", dto.getFromId(), dto.getToId());
-                        return "添加好友请求成功";
+                        log.info(I18nService.getMessage("log.friend.request_create",
+                                new Object[]{dto.getFromId(), dto.getToId()}));
+                        return I18nService.getMessage("friend.request_add_success");
                     });
         });
     }
@@ -262,11 +266,12 @@ public class RelationshipServiceImpl implements RelationshipService {
         lockExecutor.execute(lockKey, () -> {
             ImFriendshipRequestPo request = Optional.ofNullable(friendshipRequestDubboService.queryOne(
                             new ImFriendshipRequestPo().setId(dto.getId())))
-                    .orElseThrow(() -> new MessageException("好友请求不存在"));
+                    .orElseThrow(() -> new MessageException(BusinessResultCode.FRIEND_REQUEST_NOT_FOUND));
 
             if (IMApproveStatus.APPROVED.getCode().equals(dto.getApproveStatus())) {
                 createBidirectionalFriendship(request.getFromId(), request.getToId(), dto.getRemark());
-                log.info("建立好友关系: {} <-> {}", request.getFromId(), request.getToId());
+                log.info(I18nService.getMessage("log.friend.relation_create",
+                        new Object[]{request.getFromId(), request.getToId()}));
             }
 
             friendshipRequestDubboService.modifyStatus(dto.getId(), dto.getApproveStatus());
@@ -283,7 +288,8 @@ public class RelationshipServiceImpl implements RelationshipService {
         String lockKey = LOCK_PREFIX + "delete:" + dto.getFromId() + ":" + dto.getToId();
         lockExecutor.execute(lockKey, () -> {
             friendshipDubboService.removeOne(dto.getFromId(), dto.getToId());
-            log.info("删除好友: {} -> {}", dto.getFromId(), dto.getToId());
+            log.info(I18nService.getMessage("log.friend.delete",
+                    new Object[]{dto.getFromId(), dto.getToId()}));
         });
     }
 
@@ -298,16 +304,17 @@ public class RelationshipServiceImpl implements RelationshipService {
         String lockKey = LOCK_PREFIX + "remark:" + dto.getFromId() + ":" + dto.getToId();
         return lockExecutor.execute(lockKey, () -> {
             ImFriendshipPo friendship = Optional.ofNullable(friendshipDubboService.queryOne(dto.getFromId(), dto.getToId()))
-                    .orElseThrow(() -> new MessageException("好友关系不存在"));
+                    .orElseThrow(() -> new MessageException(BusinessResultCode.FRIEND_FRIENDSHIP_NOT_FOUND));
 
             friendship.setRemark(dto.getRemark());
             friendship.setSequence(DateTimeUtils.getCurrentUTCTimestamp());
 
             if (!friendshipDubboService.modify(friendship)) {
-                throw new MessageException("更新好友备注失败");
+                throw new MessageException(BusinessResultCode.FRIEND_REMARK_UPDATE_FAILED);
             }
 
-            log.info("更新好友备注: {} -> {}, remark={}", dto.getFromId(), dto.getToId(), dto.getRemark());
+            log.info(I18nService.getMessage("log.friend.remark_update",
+                    new Object[]{dto.getFromId(), dto.getToId(), dto.getRemark()}));
             return true;
         });
     }
@@ -329,7 +336,8 @@ public class RelationshipServiceImpl implements RelationshipService {
                     allUsers.addAll(users);
                 }
             } catch (Exception e) {
-                log.error("批量查询用户失败: start={}, size={}", i, batch.size(), e);
+                log.error(I18nService.getMessage("log.friend.batch_query_user_failed",
+                        new Object[]{i, batch.size()}), e);
             }
         }
 
@@ -371,7 +379,8 @@ public class RelationshipServiceImpl implements RelationshipService {
                     .filter(f -> f != null && f.getToId() != null)
                     .forEach(f -> result.put(f.getToId(), f));
         } catch (Exception e) {
-            log.warn("批量查询好友关系失败，使用单条查询: ownerId={}", ownerId, e);
+            log.warn(I18nService.getMessage("log.friend.batch_query_friendship_failed",
+                    new Object[]{ownerId}), e);
         }
 
         List<String> missingIds = userIds.stream()
@@ -383,7 +392,8 @@ public class RelationshipServiceImpl implements RelationshipService {
                 Optional.ofNullable(friendshipDubboService.queryOne(ownerId, friendId))
                         .ifPresent(friendship -> result.put(friendId, friendship));
             } catch (Exception e) {
-                log.debug("查询单个好友关系失败: ownerId={}, friendId={}", ownerId, friendId);
+                log.debug(I18nService.getMessage("log.friend.query_friendship_failed",
+                        new Object[]{ownerId, friendId}));
             }
         }
 

@@ -1,6 +1,7 @@
 package com.xy.lucky.business.exception;
 
 import com.xy.lucky.general.exception.GlobalException;
+import com.xy.lucky.general.response.domain.IResult;
 import com.xy.lucky.general.response.domain.ResultCode;
 
 /**
@@ -14,6 +15,10 @@ public class StickerException extends GlobalException {
 
     public StickerException(ResultCode resultEnum) {
         super(resultEnum);
+    }
+
+    public StickerException(IResult result) {
+        super(result.getCode(), result.getMessage());
     }
 
 }

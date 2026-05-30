@@ -25,21 +25,21 @@ public class FriendDto implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    @NotBlank(message = "用户ID不能为空", groups = {ValidationGroups.Query.class, ValidationGroups.Update.class, ValidationGroups.Delete.class})
-    @Size(max = 64, message = "用户ID长度不能超过64个字符")
+    @NotBlank(message = "{validation.user_id.required}", groups = {ValidationGroups.Query.class, ValidationGroups.Update.class, ValidationGroups.Delete.class})
+    @Size(max = 64, message = "{validation.user_id.size}")
     @Schema(description = "自己的ID")
     private String fromId;
 
-    @NotBlank(message = "好友ID不能为空", groups = {ValidationGroups.Query.class, ValidationGroups.Update.class, ValidationGroups.Delete.class})
-    @Size(max = 64, message = "好友ID长度不能超过64个字符")
+    @NotBlank(message = "{validation.friend_id.required}", groups = {ValidationGroups.Query.class, ValidationGroups.Update.class, ValidationGroups.Delete.class})
+    @Size(max = 64, message = "{validation.friend_id.size}")
     @Schema(description = "好友ID")
     private String toId;
 
-    @Size(max = 50, message = "关键词长度不能超过50个字符")
+    @Size(max = 50, message = "{validation.keyword.size}")
     @Schema(description = "搜索关键词")
     private String keyword;
 
-    @Size(max = 50, message = "备注长度不能超过50个字符")
+    @Size(max = 50, message = "{validation.friend_remark.size}")
     @Schema(description = "好友备注")
     private String remark;
 }

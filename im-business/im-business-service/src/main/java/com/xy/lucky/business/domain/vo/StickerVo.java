@@ -16,17 +16,17 @@ import org.springframework.http.codec.multipart.FilePart;
 public class StickerVo {
 
     @Schema(description = "所属表情包ID")
-    @NotBlank(message = "packId 不能为空")
-    @Size(max = 64, message = "packId 最长 64 字符")
+    @NotBlank(message = "{validation.sticker.pack_id.required}")
+    @Size(max = 64, message = "{validation.sticker.pack_id.size}")
     private String packId;
 
     @Schema(description = "表情名称", example = "smile")
-    @NotBlank(message = "name 不能为空")
-    @Size(max = 128, message = "name 最长 128 字符")
+    @NotBlank(message = "{validation.sticker.name.required}")
+    @Size(max = 128, message = "{validation.sticker.name.size}")
     private String name;
 
     @Schema(description = "标签（逗号分隔）", example = "happy,funny")
-    @Size(max = 256, message = "tags 最长 256 字符")
+    @Size(max = 256, message = "{validation.sticker.tags.size}")
     private String tags;
 
     @Schema(description = "表情ID")

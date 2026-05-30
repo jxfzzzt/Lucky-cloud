@@ -113,7 +113,7 @@ lucky:
           max-concurrency: 512
           fail-open: true
         - id: auth
-          enabled: true
+          enabled: false
           order: -150
           version: 1.0.0
           timeout-ms: 180

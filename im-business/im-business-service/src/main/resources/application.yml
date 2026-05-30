@@ -34,6 +34,13 @@ spring:
         file-extension: @nacos.config.file-extension@
         preference: @nacos.config.preference@
 
+# 国际化资源加载（在框架默认 i18n/messages 之外，追加 im-business 自带的 i18n/messages-business）
+lucky:
+  i18n:
+    basenames:
+      - i18n/messages
+      - i18n/messages-business
+
 dubbo: # dubbo
   scan:
     base-packages: com.xy.lucky.rpc.api

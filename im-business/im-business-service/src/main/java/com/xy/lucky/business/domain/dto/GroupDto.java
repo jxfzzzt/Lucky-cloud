@@ -26,44 +26,44 @@ public class GroupDto implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    @NotBlank(message = "群组ID不能为空", groups = {
+    @NotBlank(message = "{validation.group_id.required}", groups = {
             ValidationGroups.Query.class, ValidationGroups.Update.class,
             ValidationGroups.Delete.class, ValidationGroups.SetJoinMode.class,
             ValidationGroups.MuteAll.class, ValidationGroups.DismissGroup.class
     })
-    @Size(max = 15, message = "群组ID长度不能超过15个字符")
+    @Size(max = 15, message = "{validation.group_id.size}")
     @Schema(description = "群聊ID")
     private String groupId;
 
-    @NotBlank(message = "用户ID不能为空", groups = {
+    @NotBlank(message = "{validation.user_id.required}", groups = {
             ValidationGroups.Delete.class, ValidationGroups.SetJoinMode.class,
             ValidationGroups.MuteAll.class, ValidationGroups.DismissGroup.class
     })
-    @Size(max = 15, message = "用户ID长度不能超过64个字符")
+    @Size(max = 15, message = "{validation.user_id.size}")
     @Schema(description = "操作者用户ID")
     private String userId;
 
-    @Size(max = 50, message = "群名称长度不能超过50个字符")
+    @Size(max = 50, message = "{validation.group_name.size}")
     @Schema(description = "群名称")
     private String groupName;
 
-    @Size(max = 500, message = "群头像URL长度不能超过500个字符")
+    @Size(max = 500, message = "{validation.group_avatar.size}")
     @Schema(description = "群头像")
     private String avatar;
 
-    @Size(max = 500, message = "群简介长度不能超过500个字符")
+    @Size(max = 500, message = "{validation.group_introduction.size}")
     @Schema(description = "群简介")
     private String introduction;
 
-    @Size(max = 500, message = "群公告长度不能超过500个字符")
+    @Size(max = 500, message = "{validation.group_notification.size}")
     @Schema(description = "群公告")
     private String notification;
 
-    @NotNull(message = "加入方式不能为空", groups = {ValidationGroups.SetJoinMode.class})
+    @NotNull(message = "{validation.apply_join_type.required}", groups = {ValidationGroups.SetJoinMode.class})
     @Schema(description = "加入方式: 0-禁止申请, 1-需要审批, 2-自由加入")
     private Integer applyJoinType;
 
-    @NotNull(message = "全员禁言状态不能为空", groups = {ValidationGroups.MuteAll.class})
+    @NotNull(message = "{validation.mute_all.required}", groups = {ValidationGroups.MuteAll.class})
     @Schema(description = "全员禁言: 0-禁言, 1-正常")
     private Integer muteAll;
 

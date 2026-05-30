@@ -3,6 +3,7 @@ package com.xy.lucky.business.service.impl;
 import com.xy.lucky.business.domain.mapper.StickerBeanMapper;
 import com.xy.lucky.business.domain.vo.StickerRespVo;
 import com.xy.lucky.business.domain.vo.StickerVo;
+import com.xy.lucky.business.exception.BusinessResultCode;
 import com.xy.lucky.business.exception.StickerException;
 import com.xy.lucky.business.service.UserStickerService;
 import com.xy.lucky.domain.po.ImStickerPackPo;
@@ -56,7 +57,7 @@ public class UserStickerServiceImpl implements UserStickerService {
     public StickerRespVo getPackId(String packId) {
 
         ImStickerPackPo imStickerPackPo = Optional.of(imStickerPackDubboService.queryOne(packId))
-                .orElseThrow(() -> new StickerException("表情包不存在"));
+                .orElseThrow(() -> new StickerException(BusinessResultCode.STICKER_PACK_NOT_FOUND));
 
         StickerRespVo vo = stickerBeanMapper.toRespVo(imStickerPackPo);
 
@@ -77,7 +78,7 @@ public class UserStickerServiceImpl implements UserStickerService {
     public StickerVo getStickerId(String stickerId) {
 
         ImStickerPo imStickerPo = Optional.of(imStickerDubboService.queryOne(stickerId))
-                .orElseThrow(() -> new StickerException("表情不存在"));
+                .orElseThrow(() -> new StickerException(BusinessResultCode.STICKER_ITEM_NOT_FOUND));
 
         return stickerBeanMapper.toVo(imStickerPo);
     }

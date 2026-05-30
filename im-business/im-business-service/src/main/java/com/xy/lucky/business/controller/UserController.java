@@ -55,7 +55,7 @@ public class UserController {
     @Parameters({
             @Parameter(name = "userId", description = "用户ID", required = true, in = ParameterIn.QUERY)
     })
-    public Mono<UserVo> one(@RequestParam("userId") @NotBlank(message = "用户ID不能为空") String userId) {
+    public Mono<UserVo> one(@RequestParam("userId") @NotBlank(message = "{validation.user_id.required}") String userId) {
         return Mono.fromCallable(() -> userService.one(userId))
                 .subscribeOn(getScheduler());
     }
@@ -85,7 +85,7 @@ public class UserController {
     @Parameters({
             @Parameter(name = "userId", description = "用户ID", required = true, in = ParameterIn.QUERY)
     })
-    public Mono<Boolean> delete(@RequestParam("userId") @NotBlank(message = "用户ID不能为空") String userId) {
+    public Mono<Boolean> delete(@RequestParam("userId") @NotBlank(message = "{validation.user_id.required}") String userId) {
         return Mono.fromCallable(() -> userService.delete(userId))
                 .subscribeOn(getScheduler());
     }

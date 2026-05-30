@@ -26,21 +26,21 @@ public class ChatDto implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    @Size(max = 64, message = "会话ID长度不能超过64个字符")
+    @Size(max = 64, message = "{validation.chat_id.size}")
     @Schema(description = "会话ID")
     private String chatId;
 
-    @NotNull(message = "会话类型不能为空", groups = {ValidationGroups.Create.class})
+    @NotNull(message = "{validation.chat_type.required}", groups = {ValidationGroups.Create.class})
     @Schema(description = "会话类型 (1: 单聊, 2: 群聊)")
     private Integer chatType;
 
-    @NotBlank(message = "发送人ID不能为空", groups = {ValidationGroups.Create.class, ValidationGroups.Query.class})
-    @Size(max = 64, message = "发送人ID长度不能超过64个字符")
+    @NotBlank(message = "{validation.from_id.required}", groups = {ValidationGroups.Create.class, ValidationGroups.Query.class})
+    @Size(max = 64, message = "{validation.from_id.size}")
     @Schema(description = "发送人ID")
     private String fromId;
 
-    @NotBlank(message = "接收人ID不能为空", groups = {ValidationGroups.Create.class})
-    @Size(max = 64, message = "接收人ID长度不能超过64个字符")
+    @NotBlank(message = "{validation.to_id.required}", groups = {ValidationGroups.Create.class})
+    @Size(max = 64, message = "{validation.to_id.size}")
     @Schema(description = "接收人ID")
     private String toId;
 

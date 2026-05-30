@@ -83,8 +83,8 @@ public class ChatController {
             @Parameter(name = "toId", description = "目标ID", required = true, in = ParameterIn.QUERY)
     })
     public Mono<ChatVo> one(
-            @RequestParam("ownerId") @NotBlank(message = "所有者ID不能为空") String ownerId,
-            @RequestParam("toId") @NotBlank(message = "目标ID不能为空") String toId) {
+            @RequestParam("ownerId") @NotBlank(message = "{validation.owner_id.required}") String ownerId,
+            @RequestParam("toId") @NotBlank(message = "{validation.target_id.required}") String toId) {
         return Mono.fromCallable(() -> chatService.one(ownerId, toId))
                 .subscribeOn(getScheduler());
     }

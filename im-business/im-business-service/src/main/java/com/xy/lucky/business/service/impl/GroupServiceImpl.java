@@ -7,8 +7,10 @@ import com.xy.lucky.business.domain.dto.GroupInviteDto;
 import com.xy.lucky.business.domain.dto.GroupMemberDto;
 import com.xy.lucky.business.domain.mapper.GroupMemberBeanMapper;
 import com.xy.lucky.business.domain.vo.GroupMemberVo;
+import com.xy.lucky.business.exception.BusinessResultCode;
 import com.xy.lucky.business.exception.GroupException;
 import com.xy.lucky.business.service.GroupService;
+import com.xy.lucky.general.response.service.I18nService;
 import com.xy.lucky.business.service.MuteService;
 import com.xy.lucky.core.constants.IMConstant;
 import com.xy.lucky.core.enums.*;
@@ -123,15 +125,16 @@ public class GroupServiceImpl implements GroupService {
         lockExecutor.execute(lockKey, () -> {
             ImGroupMemberPo member = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getUserId());
             if (member == null) {
-                throw new GroupException("用户不在群聊中");
+                throw new GroupException(BusinessResultCode.GROUP_USER_NOT_IN_GROUP);
             }
             if (IMemberStatus.GROUP_OWNER.getCode().equals(member.getRole())) {
-                throw new GroupException("群主不可退出群聊");
+                throw new GroupException(BusinessResultCode.GROUP_OWNER_CANNOT_QUIT);
             }
 
             boolean success = groupMemberDubboService.removeOne(member.getGroupMemberId());
             if (success) {
-                log.info("退出群聊成功: groupId={}, userId={}", dto.getGroupId(), dto.getUserId());
+                log.info(I18nService.getMessage("log.group.quit_success",
+                        new Object[]{dto.getGroupId(), dto.getUserId()}));
             }
         });
     }
@@ -154,7 +157,7 @@ public class GroupServiceImpl implements GroupService {
             return inviteToGroup(dto);
         }
 
-        throw new GroupException("无效邀请类型");
+        throw new GroupException(BusinessResultCode.GROUP_INVITE_TYPE_INVALID);
     }
 
     /**
@@ -167,26 +170,26 @@ public class GroupServiceImpl implements GroupService {
     public String approveGroupInvite(GroupInviteDto dto) {
         // 待处理/已拒绝状态直接返回
         if (IMApproveStatus.PENDING.getCode().equals(dto.getApproveStatus())) {
-            return "待处理群聊邀请";
+            return I18nService.getMessage("group.invite_pending");
         }
         if (IMApproveStatus.REJECTED.getCode().equals(dto.getApproveStatus())) {
-            return "已拒绝群聊邀请";
+            return I18nService.getMessage("group.invite_rejected");
         }
 
         // 检查群是否存在及是否允许加入
         ImGroupPo group = groupDubboService.queryOne(dto.getGroupId());
         if (group == null) {
-            throw new GroupException("群不存在");
+            throw new GroupException(BusinessResultCode.GROUP_NOT_FOUND);
         }
 
         if (ImGroupJoinStatus.BAN.getCode().equals(group.getApplyJoinType())) {
-            return "群不允许加入";
+            return I18nService.getMessage("group.join_forbidden");
         }
 
         // 需要审批
         if (ImGroupJoinStatus.APPROVE.getCode().equals(group.getApplyJoinType())) {
             sendJoinApprovalRequest(dto.getGroupId(), dto.getInviterId(), dto.getUserId(), group);
-            return "已发送入群验证请求，等待审核";
+            return I18nService.getMessage("group.join_verify_sent");
         }
 
         // 直接加入
@@ -214,7 +217,7 @@ public class GroupServiceImpl implements GroupService {
     @Override
     public Boolean updateGroupInfo(GroupDto dto) {
         Optional.ofNullable(groupDubboService.queryOne(dto.getGroupId()))
-                .orElseThrow(() -> new GroupException("群组不存在"));
+                .orElseThrow(() -> new GroupException(BusinessResultCode.GROUP_NOT_FOUND));
 
         ImGroupPo update = new ImGroupPo().setGroupId(dto.getGroupId());
         if (StringUtils.hasText(dto.getGroupName())) {
@@ -231,10 +234,11 @@ public class GroupServiceImpl implements GroupService {
         }
 
         if (!groupDubboService.modify(update)) {
-            throw new GroupException("更新群信息失败");
+            throw new GroupException(BusinessResultCode.GROUP_UPDATE_FAILED);
         }
 
-        log.info("更新群信息成功: groupId={}", dto.getGroupId());
+        log.info(I18nService.getMessage("log.group.update_info_success",
+                new Object[]{dto.getGroupId()}));
         return true;
     }
 
@@ -247,7 +251,7 @@ public class GroupServiceImpl implements GroupService {
     @Override
     public Boolean updateGroupMember(GroupMemberDto dto) {
         ImGroupMemberPo member = Optional.ofNullable(groupMemberDubboService.queryOne(dto.getGroupId(), dto.getUserId()))
-                .orElseThrow(() -> new GroupException("用户不在群聊中"));
+                .orElseThrow(() -> new GroupException(BusinessResultCode.GROUP_USER_NOT_IN_GROUP));
 
         ImGroupMemberPo update = new ImGroupMemberPo().setGroupMemberId(member.getGroupMemberId());
         if (StringUtils.hasText(dto.getAlias())) {
@@ -258,10 +262,11 @@ public class GroupServiceImpl implements GroupService {
         }
 
         if (!groupMemberDubboService.modify(update)) {
-            throw new GroupException("更新群成员信息失败");
+            throw new GroupException(BusinessResultCode.GROUP_MEMBER_UPDATE_FAILED);
         }
 
-        log.info("更新群成员信息成功: groupId={}, userId={}", dto.getGroupId(), dto.getUserId());
+        log.info(I18nService.getMessage("log.group.update_member_success",
+                new Object[]{dto.getGroupId(), dto.getUserId()}));
         return true;
     }
 
@@ -272,11 +277,11 @@ public class GroupServiceImpl implements GroupService {
      */
     private String createGroup(GroupInviteDto dto) {
         if (CollectionUtils.isEmpty(dto.getMemberIds())) {
-            throw new GroupException("至少需要一个被邀请人");
+            throw new GroupException(BusinessResultCode.GROUP_NEED_AT_LEAST_ONE_INVITEE);
         }
 
         String groupId = idDubboService.generateId(IdGeneratorConstant.uuid, IdGeneratorConstant.group_message_id).getStringId();
-        String groupName = "默认群聊" + IdUtils.randomUUID().substring(0, 8);
+        String groupName = I18nService.getMessage("group.default_name") + IdUtils.randomUUID().substring(0, 8);
         long now = DateTimeUtils.getCurrentUTCTimestamp();
 
         // 创建成员列表（包含群主）
@@ -286,7 +291,7 @@ public class GroupServiceImpl implements GroupService {
 
         // 批量插入成员
         if (!Boolean.TRUE.equals(groupMemberDubboService.creatOrModifyBatch(members))) {
-            throw new GroupException("群成员创建失败");
+            throw new GroupException(BusinessResultCode.GROUP_MEMBER_CREATE_FAILED);
         }
 
         // 创建群
@@ -299,16 +304,18 @@ public class GroupServiceImpl implements GroupService {
                 .setStatus(IMStatus.YES.getCode());
 
         if (!groupDubboService.creat(group)) {
-            throw new GroupException("群信息创建失败");
+            throw new GroupException(BusinessResultCode.GROUP_INFO_CREATE_FAILED);
         }
 
         // 异步生成群头像
         generateGroupAvatar(groupId);
 
         // 发送欢迎消息
-        messageDubboService.sendGroupMessage(buildSystemMessage(groupId, "已加入群聊,请尽情聊天吧"));
+        messageDubboService.sendGroupMessage(buildSystemMessage(groupId,
+                I18nService.getMessage("group.welcome_tip")));
 
-        log.info("创建群聊成功: groupId={}, ownerId={}", groupId, dto.getUserId());
+        log.info(I18nService.getMessage("log.group.create_success",
+                new Object[]{groupId, dto.getUserId()}));
         return groupId;
     }
 
@@ -330,7 +337,7 @@ public class GroupServiceImpl implements GroupService {
 
             // 验证邀请者是否在群中
             if (!existingIds.contains(dto.getUserId())) {
-                throw new GroupException("用户不在该群组中，不可邀请新成员");
+                throw new GroupException(BusinessResultCode.GROUP_INVITER_NOT_MEMBER);
             }
 
             // 过滤已在群中的用户
@@ -357,13 +364,14 @@ public class GroupServiceImpl implements GroupService {
                     .toList();
 
             if (!Boolean.TRUE.equals(groupInviteRequestDubboService.creatBatch(requests))) {
-                throw new GroupException("保存邀请请求失败");
+                throw new GroupException(BusinessResultCode.GROUP_SAVE_INVITE_FAILED);
             }
 
             // 发送邀请消息
             sendBatchInviteMessages(groupId, dto.getUserId(), newInvitees, group);
 
-            log.info("群邀请发送成功: groupId={}, inviter={}, invitees={}", groupId, dto.getUserId(), newInvitees.size());
+            log.info(I18nService.getMessage("log.group.invite_send_success",
+                    new Object[]{groupId, dto.getUserId(), newInvitees.size()}));
             return groupId;
         });
     }
@@ -376,18 +384,19 @@ public class GroupServiceImpl implements GroupService {
         return lockExecutor.execute(lockKey, () -> {
             return Optional.ofNullable(groupMemberDubboService.queryOne(groupId, userId))
                     .filter(m -> IMemberStatus.NORMAL.getCode().equals(m.getRole()))
-                    .map(m -> "用户已加入群聊")
+                    .map(m -> I18nService.getMessage("group.already_joined"))
                     .orElseGet(() -> {
                         long now = DateTimeUtils.getCurrentUTCTimestamp();
                         ImGroupMemberPo newMember = buildMemberPo(groupId, userId, IMemberStatus.NORMAL, now);
                         if (!Boolean.TRUE.equals(groupMemberDubboService.creatOrModifyBatch(List.of(newMember)))) {
-                            throw new GroupException("加入群聊失败");
+                            throw new GroupException(BusinessResultCode.GROUP_JOIN_FAILED);
                         }
 
                         updateGroupInfoAndNotify(groupId, inviterId, userId);
 
-                        log.info("用户加入群聊成功: groupId={}, userId={}", groupId, userId);
-                        return "成功加入群聊";
+                        log.info(I18nService.getMessage("log.group.join_success",
+                                new Object[]{groupId, userId}));
+                        return I18nService.getMessage("group.join_success");
                     });
         });
     }
@@ -418,7 +427,8 @@ public class GroupServiceImpl implements GroupService {
                         .ifPresent(path -> groupDubboService.modify(new ImGroupPo().setGroupId(groupId).setAvatar(path)));
             }
         } catch (Exception e) {
-            log.error("生成群头像失败: groupId={}", groupId, e);
+            log.error(I18nService.getMessage("log.group.avatar_failed",
+                    new Object[]{groupId}), e);
         }
     }
 
@@ -538,8 +548,10 @@ public class GroupServiceImpl implements GroupService {
     public void sendJoinNotification(String groupId, String inviterId, String userId) {
         ImUserDataPo invitee = userDataDubboService.queryOne(userId);
         ImUserDataPo inviter = userDataDubboService.queryOne(inviterId);
-        String message = "\"" + (inviter != null ? inviter.getName() : inviterId) + "\" 邀请 \"" +
-                (invitee != null ? invitee.getName() : userId) + "\" 加入群聊";
+        String inviterName = inviter != null ? inviter.getName() : inviterId;
+        String inviteeName = invitee != null ? invitee.getName() : userId;
+        String message = I18nService.getMessage("group.invite_join_tip",
+                new Object[]{inviterName, inviteeName});
         messageDubboService.sendGroupMessage(buildSystemMessage(groupId, message));
     }
 
@@ -601,37 +613,37 @@ public class GroupServiceImpl implements GroupService {
             // 验证操作者权限
             ImGroupMemberPo operator = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getUserId());
             if (operator == null) {
-                throw new GroupException("操作者不在群聊中");
+                throw new GroupException(BusinessResultCode.GROUP_OPERATOR_NOT_IN_GROUP);
             }
 
             // 只有群主和管理员可以踢人
             if (!IMemberStatus.GROUP_OWNER.getCode().equals(operator.getRole())
                     && !IMemberStatus.ADMIN.getCode().equals(operator.getRole())) {
-                throw new GroupException("无权限执行此操作");
+                throw new GroupException(BusinessResultCode.GROUP_NO_PERMISSION);
             }
 
             // 查找目标成员
             ImGroupMemberPo target = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getTargetUserId());
             if (target == null) {
-                throw new GroupException("目标用户不在群聊中");
+                throw new GroupException(BusinessResultCode.GROUP_TARGET_NOT_IN_GROUP);
             }
 
             // 管理员不能踢群主和其他管理员
             if (IMemberStatus.ADMIN.getCode().equals(operator.getRole())) {
                 if (IMemberStatus.GROUP_OWNER.getCode().equals(target.getRole())
                         || IMemberStatus.ADMIN.getCode().equals(target.getRole())) {
-                    throw new GroupException("管理员无法移除群主或其他管理员");
+                    throw new GroupException(BusinessResultCode.GROUP_ADMIN_CANNOT_REMOVE_OWNER_OR_ADMIN);
                 }
             }
 
             // 群主不能踢自己
             if (dto.getUserId().equals(dto.getTargetUserId())) {
-                throw new GroupException("不能移除自己");
+                throw new GroupException(BusinessResultCode.GROUP_CANNOT_REMOVE_SELF);
             }
 
             // 执行踢人
             if (!groupMemberDubboService.removeOne(target.getGroupMemberId())) {
-                throw new GroupException("移除成员失败");
+                throw new GroupException(BusinessResultCode.GROUP_REMOVE_MEMBER_FAILED);
             }
 
             // 清除该成员在群组中的禁言状态
@@ -639,10 +651,11 @@ public class GroupServiceImpl implements GroupService {
 
             // 发送群操作消息
             sendGroupOperationWithTarget(dto.getGroupId(), IMessageContentType.KICK_FROM_GROUP,
-                    dto.getUserId(), dto.getTargetUserId(), "被移出群聊");
+                    dto.getUserId(), dto.getTargetUserId(),
+                    I18nService.getMessage("group.kick_action"));
 
-            log.info("踢出群成员成功: groupId={}, operator={}, target={}",
-                    dto.getGroupId(), dto.getUserId(), dto.getTargetUserId());
+            log.info(I18nService.getMessage("log.group.kick_success",
+                    new Object[]{dto.getGroupId(), dto.getUserId(), dto.getTargetUserId()}));
         });
     }
 
@@ -656,18 +669,18 @@ public class GroupServiceImpl implements GroupService {
             // 验证操作者是否为群主
             ImGroupMemberPo operator = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getUserId());
             if (operator == null || !IMemberStatus.GROUP_OWNER.getCode().equals(operator.getRole())) {
-                throw new GroupException("只有群主可以设置管理员");
+                throw new GroupException(BusinessResultCode.GROUP_ONLY_OWNER_SET_ADMIN);
             }
 
             // 查找目标成员
             ImGroupMemberPo target = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getTargetUserId());
             if (target == null) {
-                throw new GroupException("目标用户不在群聊中");
+                throw new GroupException(BusinessResultCode.GROUP_TARGET_NOT_IN_GROUP);
             }
 
             // 不能设置群主为管理员
             if (IMemberStatus.GROUP_OWNER.getCode().equals(target.getRole())) {
-                throw new GroupException("不能更改群主的角色");
+                throw new GroupException(BusinessResultCode.GROUP_CANNOT_CHANGE_OWNER_ROLE);
             }
 
             // 更新角色
@@ -678,19 +691,21 @@ public class GroupServiceImpl implements GroupService {
 
             target.setRole(newRole);
             if (!groupMemberDubboService.modify(target)) {
-                throw new GroupException("设置管理员失败");
+                throw new GroupException(BusinessResultCode.GROUP_SET_ADMIN_FAILED);
             }
 
             // 发送群操作消息
             boolean isPromote = IMemberStatus.ADMIN.getCode().equals(newRole);
             IMessageContentType actionType = isPromote ? IMessageContentType.PROMOTE_TO_ADMIN : IMessageContentType.DEMOTE_FROM_ADMIN;
-            String action = isPromote ? "被设为管理员" : "被取消管理员";
+            String action = isPromote
+                    ? I18nService.getMessage("group.promoted_admin")
+                    : I18nService.getMessage("group.demoted_admin");
             Map<String, Object> extra = Map.of("newRole", newRole, "oldRole", oldRole);
             sendGroupOperationWithTarget(dto.getGroupId(), actionType,
                     dto.getUserId(), dto.getTargetUserId(), action, extra);
 
-            log.info("设置管理员成功: groupId={}, target={}, role={}",
-                    dto.getGroupId(), dto.getTargetUserId(), newRole);
+            log.info(I18nService.getMessage("log.group.set_admin_success",
+                    new Object[]{dto.getGroupId(), dto.getTargetUserId(), newRole}));
         });
     }
 
@@ -704,24 +719,24 @@ public class GroupServiceImpl implements GroupService {
             // 验证操作者是否为当前群主
             ImGroupMemberPo currentOwner = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getUserId());
             if (currentOwner == null || !IMemberStatus.GROUP_OWNER.getCode().equals(currentOwner.getRole())) {
-                throw new GroupException("只有群主可以移交群主");
+                throw new GroupException(BusinessResultCode.GROUP_ONLY_OWNER_TRANSFER);
             }
 
             // 查找新群主
             ImGroupMemberPo newOwner = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getTargetUserId());
             if (newOwner == null) {
-                throw new GroupException("目标用户不在群聊中");
+                throw new GroupException(BusinessResultCode.GROUP_TARGET_NOT_IN_GROUP);
             }
 
             // 不能移交给自己
             if (dto.getUserId().equals(dto.getTargetUserId())) {
-                throw new GroupException("不能移交给自己");
+                throw new GroupException(BusinessResultCode.GROUP_CANNOT_TRANSFER_TO_SELF);
             }
 
             // 更新原群主为普通成员
             currentOwner.setRole(IMemberStatus.NORMAL.getCode());
             if (!groupMemberDubboService.modify(currentOwner)) {
-                throw new GroupException("更新原群主角色失败");
+                throw new GroupException(BusinessResultCode.GROUP_UPDATE_OLD_OWNER_FAILED);
             }
 
             // 更新新群主
@@ -730,7 +745,7 @@ public class GroupServiceImpl implements GroupService {
                 // 回滚原群主角色
                 currentOwner.setRole(IMemberStatus.GROUP_OWNER.getCode());
                 groupMemberDubboService.modify(currentOwner);
-                throw new GroupException("设置新群主失败");
+                throw new GroupException(BusinessResultCode.GROUP_SET_NEW_OWNER_FAILED);
             }
 
             // 更新群信息
@@ -746,10 +761,11 @@ public class GroupServiceImpl implements GroupService {
                     "newOwner", dto.getTargetUserId()
             );
             sendGroupOperationWithTarget(dto.getGroupId(), IMessageContentType.TRANSFER_GROUP_OWNER,
-                    dto.getUserId(), dto.getTargetUserId(), "成为新群主", extra);
+                    dto.getUserId(), dto.getTargetUserId(),
+                    I18nService.getMessage("group.new_owner"), extra);
 
-            log.info("移交群主成功: groupId={}, oldOwner={}, newOwner={}",
-                    dto.getGroupId(), dto.getUserId(), dto.getTargetUserId());
+            log.info(I18nService.getMessage("log.group.transfer_owner_success",
+                    new Object[]{dto.getGroupId(), dto.getUserId(), dto.getTargetUserId()}));
         });
     }
 
@@ -766,7 +782,7 @@ public class GroupServiceImpl implements GroupService {
             // 验证加入方式参数
             ImGroupJoinStatus joinStatus = ImGroupJoinStatus.getByCode(dto.getApplyJoinType());
             if (joinStatus == null) {
-                throw new GroupException("无效的加入方式");
+                throw new GroupException(BusinessResultCode.GROUP_INVALID_JOIN_MODE);
             }
 
             // 更新群设置
@@ -775,17 +791,18 @@ public class GroupServiceImpl implements GroupService {
                     .setApplyJoinType(dto.getApplyJoinType());
 
             if (!groupDubboService.modify(update)) {
-                throw new GroupException("设置加入方式失败");
+                throw new GroupException(BusinessResultCode.GROUP_SET_JOIN_MODE_FAILED);
             }
 
             // 发送群操作消息
-            String description = "群加入方式已设置为：" + joinStatus.getDesc();
+            String description = I18nService.getMessage("group.join_mode_set",
+                    new Object[]{joinStatus.getDesc()});
             Map<String, Object> extra = Map.of("joinMode", dto.getApplyJoinType());
             sendGroupOperationWithoutTarget(dto.getGroupId(), IMessageContentType.SET_GROUP_JOIN_MODE,
                     dto.getUserId(), description, extra);
 
-            log.info("设置群加入方式成功: groupId={}, joinType={}",
-                    dto.getGroupId(), joinStatus.getDesc());
+            log.info(I18nService.getMessage("log.group.set_join_mode_success",
+                    new Object[]{dto.getGroupId(), joinStatus.getDesc()}));
         });
     }
 
@@ -799,25 +816,25 @@ public class GroupServiceImpl implements GroupService {
             // 验证操作者权限
             ImGroupMemberPo operator = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getUserId());
             if (operator == null) {
-                throw new GroupException("操作者不在群聊中");
+                throw new GroupException(BusinessResultCode.GROUP_OPERATOR_NOT_IN_GROUP);
             }
 
             if (!IMemberStatus.GROUP_OWNER.getCode().equals(operator.getRole())
                     && !IMemberStatus.ADMIN.getCode().equals(operator.getRole())) {
-                throw new GroupException("无权限执行此操作");
+                throw new GroupException(BusinessResultCode.GROUP_NO_PERMISSION);
             }
 
             // 查找目标成员
             ImGroupMemberPo target = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getTargetUserId());
             if (target == null) {
-                throw new GroupException("目标用户不在群聊中");
+                throw new GroupException(BusinessResultCode.GROUP_TARGET_NOT_IN_GROUP);
             }
 
             // 管理员不能禁言群主和其他管理员
             if (IMemberStatus.ADMIN.getCode().equals(operator.getRole())) {
                 if (IMemberStatus.GROUP_OWNER.getCode().equals(target.getRole())
                         || IMemberStatus.ADMIN.getCode().equals(target.getRole())) {
-                    throw new GroupException("无法禁言群主或其他管理员");
+                    throw new GroupException(BusinessResultCode.GROUP_CANNOT_MUTE_OWNER_OR_ADMIN);
                 }
             }
 
@@ -850,12 +867,14 @@ public class GroupServiceImpl implements GroupService {
             }
 
             if (!groupMemberDubboService.modify(target)) {
-                throw new GroupException("更新禁言状态失败");
+                throw new GroupException(BusinessResultCode.GROUP_MUTE_UPDATE_FAILED);
             }
 
             // 发送群操作消息
             IMessageContentType actionType = isMute ? IMessageContentType.MUTE_MEMBER : IMessageContentType.UNMUTE_MEMBER;
-            String action = isMute ? "被禁言" : "被解除禁言";
+            String action = isMute
+                    ? I18nService.getMessage("group.muted")
+                    : I18nService.getMessage("group.unmuted");
             Map<String, Object> extra = new HashMap<>();
             extra.put("mute", dto.getMute());
             if (dto.getMuteDuration() != null) {
@@ -867,8 +886,8 @@ public class GroupServiceImpl implements GroupService {
             sendGroupOperationWithTarget(dto.getGroupId(), actionType,
                     dto.getUserId(), dto.getTargetUserId(), action, extra);
 
-            log.info("禁言成员操作成功: groupId={}, target={}, mute={}, muteEndTime={}",
-                    dto.getGroupId(), dto.getTargetUserId(), dto.getMute(), target.getMuteEndTime());
+            log.info(I18nService.getMessage("log.group.mute_member_success",
+                    new Object[]{dto.getGroupId(), dto.getTargetUserId(), dto.getMute(), target.getMuteEndTime()}));
         });
     }
 
@@ -888,7 +907,7 @@ public class GroupServiceImpl implements GroupService {
                     .setMute(dto.getMuteAll());
 
             if (!groupDubboService.modify(update)) {
-                throw new GroupException("设置全员禁言失败");
+                throw new GroupException(BusinessResultCode.GROUP_MUTE_ALL_FAILED);
             }
 
             // 更新 Redis 禁言状态
@@ -903,11 +922,14 @@ public class GroupServiceImpl implements GroupService {
             // 发送群操作消息
             boolean isMuteAll = IMStatus.NO.getCode().equals(dto.getMuteAll());
             IMessageContentType actionType = isMuteAll ? IMessageContentType.MUTE_ALL : IMessageContentType.UNMUTE_ALL;
-            String description = isMuteAll ? "群主/管理员开启了全员禁言" : "群主/管理员关闭了全员禁言";
+            String description = isMuteAll
+                    ? I18nService.getMessage("group.mute_all_on")
+                    : I18nService.getMessage("group.mute_all_off");
             Map<String, Object> extra = Map.of("muteAll", dto.getMuteAll());
             sendGroupOperationWithoutTarget(dto.getGroupId(), actionType, dto.getUserId(), description, extra);
 
-            log.info("全员禁言操作成功: groupId={}, muteAll={}", dto.getGroupId(), dto.getMuteAll());
+            log.info(I18nService.getMessage("log.group.mute_all_success",
+                    new Object[]{dto.getGroupId(), dto.getMuteAll()}));
         });
     }
 
@@ -921,12 +943,12 @@ public class GroupServiceImpl implements GroupService {
             // 只有群主可以解散群
             ImGroupMemberPo operator = groupMemberDubboService.queryOne(dto.getGroupId(), dto.getUserId());
             if (operator == null || !IMemberStatus.GROUP_OWNER.getCode().equals(operator.getRole())) {
-                throw new GroupException("只有群主可以解散群组");
+                throw new GroupException(BusinessResultCode.GROUP_ONLY_OWNER_DISMISS);
             }
 
             // 发送解散通知（在删除成员前发送，确保所有成员能收到）
             sendGroupOperationWithoutTarget(dto.getGroupId(), IMessageContentType.REMOVE_GROUP,
-                    dto.getUserId(), "群组已被群主解散", null);
+                    dto.getUserId(), I18nService.getMessage("group.dissolved"), null);
 
             // 获取所有成员并删除
             List<ImGroupMemberPo> members = groupMemberDubboService.queryList(dto.getGroupId());
@@ -940,7 +962,8 @@ public class GroupServiceImpl implements GroupService {
                     .setStatus(IMStatus.NO.getCode());
             groupDubboService.modify(update);
 
-            log.info("解散群组成功: groupId={}, operator={}", dto.getGroupId(), dto.getUserId());
+            log.info(I18nService.getMessage("log.group.dismiss_success",
+                    new Object[]{dto.getGroupId(), dto.getUserId()}));
         });
     }
 
@@ -960,16 +983,18 @@ public class GroupServiceImpl implements GroupService {
                     .setNotification(dto.getNotification());
 
             if (!groupDubboService.modify(update)) {
-                throw new GroupException("设置群公告失败");
+                throw new GroupException(BusinessResultCode.GROUP_ANNOUNCEMENT_FAILED);
             }
 
             // 发送群操作消息
-            String description = "群公告已更新：" + dto.getNotification();
+            String description = I18nService.getMessage("group.announcement_updated",
+                    new Object[]{dto.getNotification()});
             Map<String, Object> extra = Map.of("announcement", dto.getNotification());
             sendGroupOperationWithoutTarget(dto.getGroupId(), IMessageContentType.SET_GROUP_ANNOUNCEMENT,
                     dto.getUserId(), description, extra);
 
-            log.info("设置群公告成功: groupId={}", dto.getGroupId());
+            log.info(I18nService.getMessage("log.group.announcement_success",
+                    new Object[]{dto.getGroupId()}));
         });
     }
 
@@ -981,12 +1006,12 @@ public class GroupServiceImpl implements GroupService {
     private void validateAdminPermission(String groupId, String userId) {
         ImGroupMemberPo operator = groupMemberDubboService.queryOne(groupId, userId);
         if (operator == null) {
-            throw new GroupException("操作者不在群聊中");
+            throw new GroupException(BusinessResultCode.GROUP_OPERATOR_NOT_IN_GROUP);
         }
 
         if (!IMemberStatus.GROUP_OWNER.getCode().equals(operator.getRole())
                 && !IMemberStatus.ADMIN.getCode().equals(operator.getRole())) {
-            throw new GroupException("无权限执行此操作");
+            throw new GroupException(BusinessResultCode.GROUP_NO_PERMISSION);
         }
     }
 
@@ -998,7 +1023,8 @@ public class GroupServiceImpl implements GroupService {
         ImUserDataPo target = userDataDubboService.queryOne(targetId);
         String operatorName = operator != null ? operator.getName() : operatorId;
         String targetName = target != null ? target.getName() : targetId;
-        String message = "\"" + operatorName + "\" 将 \"" + targetName + "\" " + action;
+        String message = I18nService.getMessage("group.operation_template",
+                new Object[]{operatorName, targetName, action});
         messageDubboService.sendGroupMessage(buildSystemMessage(groupId, message));
     }
 
@@ -1071,7 +1097,8 @@ public class GroupServiceImpl implements GroupService {
         ImUserDataPo targetInfo = userDataDubboService.queryOne(targetId);
         String operatorName = operatorInfo != null ? operatorInfo.getName() : operatorId;
         String targetName = targetInfo != null ? targetInfo.getName() : targetId;
-        String description = "\"" + operatorName + "\" 将 \"" + targetName + "\" " + action;
+        String description = I18nService.getMessage("group.operation_template",
+                new Object[]{operatorName, targetName, action});
 
         sendGroupOperationMessage(groupId, operationType, operatorId, targetId, description, extra);
     }

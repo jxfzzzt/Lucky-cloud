@@ -47,7 +47,7 @@ public class RelationshipController {
             @Parameter(name = "sequence", description = "消息序列号", required = false, in = ParameterIn.QUERY)
     })
     public Mono<?> contacts(
-            @RequestParam("userId") @NotBlank(message = "用户ID不能为空") String userId,
+            @RequestParam("userId") @NotBlank(message = "{validation.user_id.required}") String userId,
             @RequestParam(value = "sequence", required = false) Long sequence) {
         return Mono.fromCallable(() -> relationshipService.contacts(userId, sequence))
                 .subscribeOn(getScheduler());
@@ -58,7 +58,7 @@ public class RelationshipController {
     @Parameters({
             @Parameter(name = "userId", description = "用户ID", required = true, in = ParameterIn.QUERY)
     })
-    public Mono<?> groups(@RequestParam("userId") @NotBlank(message = "用户ID不能为空") String userId) {
+    public Mono<?> groups(@RequestParam("userId") @NotBlank(message = "{validation.user_id.required}") String userId) {
         return Mono.fromCallable(() -> relationshipService.groups(userId))
                 .subscribeOn(getScheduler());
     }
@@ -68,7 +68,7 @@ public class RelationshipController {
     @Parameters({
             @Parameter(name = "userId", description = "用户ID", required = true, in = ParameterIn.QUERY)
     })
-    public Mono<?> newFriends(@RequestParam("userId") @NotBlank(message = "用户ID不能为空") String userId) {
+    public Mono<?> newFriends(@RequestParam("userId") @NotBlank(message = "{validation.user_id.required}") String userId) {
         return Mono.fromCallable(() -> relationshipService.newFriends(userId))
                 .subscribeOn(getScheduler());
     }

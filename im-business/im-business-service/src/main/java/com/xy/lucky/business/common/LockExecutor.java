@@ -1,6 +1,8 @@
 package com.xy.lucky.business.common;
 
+import com.xy.lucky.business.exception.BusinessResultCode;
 import com.xy.lucky.business.exception.MessageException;
+import com.xy.lucky.general.response.service.I18nService;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -64,14 +66,16 @@ public class LockExecutor {
         try {
             acquired = lock.tryLock(waitTime, leaseTime, TimeUnit.SECONDS);
             if (!acquired) {
-                log.warn("获取锁失败: lockKey={}", lockKey);
-                throw new MessageException("操作繁忙，请稍后重试");
+                log.warn(I18nService.getMessage("log.lock.acquire_failed",
+                        new Object[]{lockKey}));
+                throw new MessageException(BusinessResultCode.LOCK_BUSY_RETRY);
             }
             return action.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("获取锁被中断: lockKey={}", lockKey, e);
-            throw new MessageException("操作被中断");
+            log.error(I18nService.getMessage("log.lock.interrupted",
+                    new Object[]{lockKey}), e);
+            throw new MessageException(BusinessResultCode.LOCK_OPERATION_INTERRUPTED);
         } finally {
             safeUnlock(lock, acquired);
         }
@@ -104,12 +108,12 @@ public class LockExecutor {
         try {
             acquired = lock.tryLock(DEFAULT_WAIT_TIME, DEFAULT_LEASE_TIME, TimeUnit.SECONDS);
             if (!acquired) {
-                throw new MessageException("操作繁忙，请稍后重试");
+                throw new MessageException(BusinessResultCode.LOCK_BUSY_RETRY);
             }
             return action.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new MessageException("操作被中断");
+            throw new MessageException(BusinessResultCode.LOCK_OPERATION_INTERRUPTED);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -127,7 +131,7 @@ public class LockExecutor {
             try {
                 lock.unlock();
             } catch (Exception e) {
-                log.warn("释放锁异常", e);
+                log.warn(I18nService.getMessage("log.lock.release_failed"), e);
             }
         }
     }
