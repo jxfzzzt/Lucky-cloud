@@ -6,6 +6,7 @@ import com.xy.lucky.domain.po.ImGroupPo;
 import com.xy.lucky.rpc.api.database.group.ImGroupDubboService;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboService;
+import org.springframework.util.CollectionUtils;
 
 import java.util.List;
 
@@ -19,6 +20,14 @@ public class ImGroupService extends ServiceImpl<ImGroupMapper, ImGroupPo>
     @Override
     public List<ImGroupPo> queryList(String userId) {
         return imGroupMapper.selectGroupsByUserId(userId);
+    }
+
+    @Override
+    public List<ImGroupPo> queryListByIds(List<String> groupIdList) {
+        if (CollectionUtils.isEmpty(groupIdList)) {
+            return List.of();
+        }
+        return this.listByIds(groupIdList);
     }
 
     @Override

@@ -12,6 +12,7 @@ import org.apache.dubbo.config.annotation.DubboService;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 
 @Slf4j
@@ -56,6 +57,12 @@ public class ImChatService extends ServiceImpl<ImChatMapper, ImChatPo>
     @Override
     public Boolean removeOne(String id) {
         return super.removeById(id);
+    }
+
+    @Override
+    public Boolean upsertSequence(String ownerId, String toId, Integer chatType, Long sequence, String defaultId) {
+        String chatId = (defaultId == null || defaultId.isBlank()) ? UUID.randomUUID().toString() : defaultId;
+        return imChatMapper.upsertSequence(ownerId, toId, chatType, sequence, chatId) > 0;
     }
 
 

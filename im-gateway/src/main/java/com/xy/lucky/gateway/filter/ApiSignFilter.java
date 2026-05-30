@@ -2,12 +2,12 @@ package com.xy.lucky.gateway.filter;
 
 import com.alibaba.nacos.common.utils.JacksonUtils;
 import com.xy.lucky.gateway.config.GatewayAuthProperties;
-import com.xy.lucky.gateway.plugin.GatewayPlugin;
-import com.xy.lucky.gateway.plugin.GatewayPluginChain;
 import com.xy.lucky.gateway.utils.ResponseUtil;
 import com.xy.lucky.gateway.utils.SignUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
+import org.springframework.core.Ordered;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -31,28 +32,19 @@ import java.util.Map;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ApiSignFilter implements GatewayPlugin {
+public class ApiSignFilter implements GlobalFilter, Ordered {
+    private static final int ORDER = -180;
 
     private final GatewayAuthProperties properties;
     private final ReactiveStringRedisTemplate reactiveStringRedisTemplate;
 
     @Override
-    public String getId() {
-        return "api-sign";
-    }
-
-    @Override
-    public String getVersion() {
-        return "1.0.0";
-    }
-
-    @Override
     public int getOrder() {
-        return -180;
+        return ORDER;
     }
 
     @Override
-    public Mono<Void> apply(ServerWebExchange exchange, GatewayPluginChain chain) {
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         GatewayAuthProperties.ApiSign config = properties.getSign();
         if (!properties.isEnabled() || !config.isEnabled()) {
             return chain.filter(exchange);

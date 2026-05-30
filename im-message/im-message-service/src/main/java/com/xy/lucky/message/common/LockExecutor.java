@@ -4,6 +4,7 @@ import com.xy.lucky.message.exception.MessageException;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.TimeUnit;
@@ -24,11 +25,13 @@ public class LockExecutor {
     /**
      * 默认锁等待时间（秒）
      */
-    private static final long DEFAULT_WAIT_TIME = 100000L;
+    @Value("${lock.default-wait-seconds:3}")
+    private long defaultWaitTime;
     /**
      * 默认锁持有时间（秒）
      */
-    private static final long DEFAULT_LEASE_TIME = 100000L;
+    @Value("${lock.default-lease-seconds:15}")
+    private long defaultLeaseTime;
 
     private final RedissonClient redissonClient;
 
@@ -45,7 +48,7 @@ public class LockExecutor {
      * @return 操作的返回值
      */
     public <T> T execute(String lockKey, Supplier<T> action) {
-        return execute(lockKey, DEFAULT_WAIT_TIME, DEFAULT_LEASE_TIME, action);
+        return execute(lockKey, defaultWaitTime, defaultLeaseTime, action);
     }
 
     /**
@@ -102,7 +105,7 @@ public class LockExecutor {
         RLock lock = redissonClient.getLock(lockKey);
         boolean acquired = false;
         try {
-            acquired = lock.tryLock(DEFAULT_WAIT_TIME, DEFAULT_LEASE_TIME, TimeUnit.SECONDS);
+            acquired = lock.tryLock(defaultWaitTime, defaultLeaseTime, TimeUnit.SECONDS);
             if (!acquired) {
                 throw new MessageException("操作繁忙，请稍后重试");
             }
@@ -140,4 +143,3 @@ public class LockExecutor {
         T get() throws Exception;
     }
 }
-

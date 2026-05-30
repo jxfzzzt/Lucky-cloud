@@ -1,22 +1,19 @@
 package com.xy.lucky.leaf.model;
 
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 简单的环形缓冲区，用于缓存ID
- * 使用Lock保证线程安全，提高并发性能
+ * 使用无锁队列和原子计数保证线程安全，减少锁竞争
  *
  * @param <E> 元素类型
  */
 public class IdRingBuffer<E> {
 
-    private final Object[] buffer; // 存储元素的数组
-    private final int capacity; // 容量必须是 2 的幂
-    private final Lock lock = new ReentrantLock();
-    private volatile int head = 0; // 读指针
-    private volatile int tail = 0; // 写指针
-    private volatile int size = 0; // 当前缓存区中元素数量
+    private final int capacity;
+    private final ConcurrentLinkedQueue<E> queue;
+    private final AtomicInteger size;
 
     /**
      * 构造函数
@@ -24,8 +21,12 @@ public class IdRingBuffer<E> {
      * @param capacity 缓冲区容量，必须是2的幂
      */
     public IdRingBuffer(int capacity) {
+        if (capacity <= 0) {
+            throw new IllegalArgumentException("capacity must be greater than 0");
+        }
         this.capacity = capacity;
-        this.buffer = new Object[capacity];
+        this.queue = new ConcurrentLinkedQueue<>();
+        this.size = new AtomicInteger(0);
     }
 
     /**
@@ -35,16 +36,18 @@ public class IdRingBuffer<E> {
      * @throws IllegalStateException 当缓冲区已满时抛出
      */
     public void put(E e) {
-        lock.lock();
-        try {
-            if (isFull()) {
+        if (e == null) {
+            throw new IllegalArgumentException("element must not be null");
+        }
+        while (true) {
+            int current = size.get();
+            if (current >= capacity) {
                 throw new IllegalStateException("RingBuffer is full");
             }
-            buffer[tail] = e;
-            tail = (tail + 1) & (capacity - 1);
-            size++;
-        } finally {
-            lock.unlock();
+            if (size.compareAndSet(current, current + 1)) {
+                queue.offer(e);
+                return;
+            }
         }
     }
 
@@ -54,20 +57,29 @@ public class IdRingBuffer<E> {
      * @return 从缓冲区头部获取的元素
      * @throws IllegalStateException 当缓冲区为空时抛出
      */
-    @SuppressWarnings("unchecked")
     public E take() {
-        lock.lock();
-        try {
-            if (isEmpty()) {
+        while (true) {
+            E value = queue.poll();
+            if (value != null) {
+                decrementSize();
+                return value;
+            }
+            if (size.get() == 0) {
                 throw new IllegalStateException("RingBuffer is empty");
             }
-            E e = (E) buffer[head];
-            buffer[head] = null;
-            head = (head + 1) & (capacity - 1);
-            size--;
-            return e;
-        } finally {
-            lock.unlock();
+            Thread.onSpinWait();
+        }
+    }
+
+    private void decrementSize() {
+        while (true) {
+            int current = size.get();
+            if (current <= 0) {
+                return;
+            }
+            if (size.compareAndSet(current, current - 1)) {
+                return;
+            }
         }
     }
 
@@ -77,7 +89,7 @@ public class IdRingBuffer<E> {
      * @return 如果缓冲区已满则返回true，否则返回false
      */
     public boolean isFull() {
-        return size == capacity;
+        return size.get() == capacity;
     }
 
     /**
@@ -86,7 +98,7 @@ public class IdRingBuffer<E> {
      * @return 如果缓冲区为空则返回true，否则返回false
      */
     public boolean isEmpty() {
-        return size == 0;
+        return size.get() == 0;
     }
 
     /**
@@ -95,6 +107,6 @@ public class IdRingBuffer<E> {
      * @return 当前缓冲区中元素的数量
      */
     public int size() {
-        return size;
+        return size.get();
     }
 }

@@ -17,9 +17,8 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>im-connect-core</module>
+        <module>im-connect-netty</module>
         <module>im-connect-springboot</module>
-        <module>im-connect-pressure</module>
     </modules>
 
     <properties>

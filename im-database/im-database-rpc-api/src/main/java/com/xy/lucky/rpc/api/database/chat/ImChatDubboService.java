@@ -54,4 +54,16 @@ public interface ImChatDubboService {
      * @param id 会话id
      */
     Boolean removeOne(String id);
+
+    /**
+     * 按 ownerId + toId + chatType 进行会话时序 UPSERT。
+     *
+     * @param ownerId    会话所属用户
+     * @param toId       会话目标（对端用户/群）
+     * @param chatType   会话类型
+     * @param sequence   最新时序
+     * @param defaultId  当记录不存在时使用的 chatId
+     * @return 是否执行成功
+     */
+    Boolean upsertSequence(String ownerId, String toId, Integer chatType, Long sequence, String defaultId);
 }

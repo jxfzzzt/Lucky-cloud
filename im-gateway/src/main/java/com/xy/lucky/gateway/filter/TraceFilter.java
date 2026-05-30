@@ -1,8 +1,9 @@
 package com.xy.lucky.gateway.filter;
 
-import com.xy.lucky.gateway.plugin.GatewayPlugin;
-import com.xy.lucky.gateway.plugin.GatewayPluginChain;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -13,27 +14,18 @@ import java.util.UUID;
 
 @Slf4j
 @Component
-public class TraceFilter implements GatewayPlugin {
+public class TraceFilter implements GlobalFilter, Ordered {
 
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
-
-    @Override
-    public String getId() {
-        return "trace";
-    }
-
-    @Override
-    public String getVersion() {
-        return "1.0.0";
-    }
+    private static final int ORDER = -1000;
 
     @Override
     public int getOrder() {
-        return -1000;
+        return ORDER;
     }
 
     @Override
-    public Mono<Void> apply(ServerWebExchange exchange, GatewayPluginChain chain) {
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
         String traceId = request.getHeaders().getFirst(TRACE_ID_HEADER);
 

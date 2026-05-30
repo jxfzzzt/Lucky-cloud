@@ -3,6 +3,7 @@ package com.xy.lucky.leaf.core.impl;
 import com.xy.lucky.core.model.IMetaId;
 import com.xy.lucky.leaf.core.IDGen;
 import com.xy.lucky.leaf.model.IdRingBuffer;
+import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
@@ -10,6 +11,7 @@ import reactor.core.publisher.Mono;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 基于 UUID 的 ID 生成器，实现了 RingBuffer 缓存池
@@ -27,6 +29,7 @@ public class UuidGenImpl implements IDGen {
         t.setDaemon(true);
         return t;
     });
+    private final AtomicBoolean fillInProgress = new AtomicBoolean(false);
 
     // 缓存区位数（2 的幂），默认 10 -> 大小 1024
     @Value("${uuid.buffer-size-bits:10}")
@@ -77,13 +80,25 @@ public class UuidGenImpl implements IDGen {
     public IMetaId getId(String key) {
         // 检测剩余量
         if (ringBuffer.size() < bufferSize * paddingFactor) {
-            // 使用独立线程异步填充缓冲区，避免阻塞当前线程
-            executorService.submit(this::fillBuffer);
+            triggerAsyncFill();
         }
 
         String nextId = ringBuffer.take();
 
         return IMetaId.builder().stringId(nextId).build();
+    }
+
+    private void triggerAsyncFill() {
+        // 避免高并发下重复提交 fill 任务，降低线程池排队开销
+        if (fillInProgress.compareAndSet(false, true)) {
+            executorService.submit(() -> {
+                try {
+                    fillBuffer();
+                } finally {
+                    fillInProgress.set(false);
+                }
+            });
+        }
     }
 
     /**
@@ -93,5 +108,10 @@ public class UuidGenImpl implements IDGen {
         while (!ringBuffer.isFull()) {
             ringBuffer.put(UUID.randomUUID().toString());
         }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        executorService.shutdownNow();
     }
 }

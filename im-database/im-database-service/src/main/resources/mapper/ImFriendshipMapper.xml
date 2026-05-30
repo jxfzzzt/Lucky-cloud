@@ -5,7 +5,18 @@
 <mapper namespace="com.xy.lucky.database.web.mapper.ImFriendshipMapper">
 
     <select id="selectFriendList" resultType="com.xy.lucky.domain.po.ImFriendshipPo">
-        select *
+        select owner_id,
+               to_id,
+               remark,
+               black,
+               sequence,
+               black_sequence,
+               add_source,
+               extra,
+               create_time,
+               update_time,
+               del_flag,
+               version
         from im_friendship
         <where>
             <if test="ownerId != null and ownerId != ''">

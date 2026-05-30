@@ -108,7 +108,7 @@ public class ThreadPoolConfig {
     @Bean("messagePushExecutor")
     public ExecutorService messagePushExecutor() {
         int coreSize = Runtime.getRuntime().availableProcessors() * 2;
-        int maxSize = ioMaxSize;
+        int maxSize = Math.max(coreSize, ioMaxSize);
 
         AtomicInteger threadCounter = new AtomicInteger(0);
         ThreadFactory threadFactory = r -> {

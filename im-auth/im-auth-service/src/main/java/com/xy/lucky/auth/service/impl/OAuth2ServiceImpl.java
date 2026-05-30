@@ -36,6 +36,10 @@ import java.util.stream.Collectors;
 public class OAuth2ServiceImpl implements OAuth2Service {
 
     private static final String AUTH_CODE_KEY_PREFIX = "im:auth:oauth2:code:";
+    private static final String OAUTH2_AUTHORIZE_RATE_LIMIT_IP_KEY_PREFIX = "im:auth:rate_limit:oauth2:authorize:ip:";
+    private static final String OAUTH2_AUTHORIZE_RATE_LIMIT_CLIENT_KEY_PREFIX = "im:auth:rate_limit:oauth2:authorize:client:";
+    private static final String OAUTH2_TOKEN_RATE_LIMIT_IP_KEY_PREFIX = "im:auth:rate_limit:oauth2:token:ip:";
+    private static final String OAUTH2_TOKEN_RATE_LIMIT_CLIENT_KEY_PREFIX = "im:auth:rate_limit:oauth2:token:client:";
 
     private final OAuth2Properties oAuth2Properties;
     private final RedisCache redisCache;
@@ -167,8 +171,8 @@ public class OAuth2ServiceImpl implements OAuth2Service {
 
     private void enforceAuthorizeRateLimit(HttpServletRequest request, String clientId) {
         String clientIp = RequestContextUtil.resolveClientIp(request);
-        String iKey = "IM:AUTH:RL:OA:AUTH:I:" + Optional.ofNullable(clientIp).orElse("");
-        String cKey = "IM:AUTH:RL:OA:AUTH:C:" + Optional.ofNullable(clientId).orElse("");
+        String iKey = OAUTH2_AUTHORIZE_RATE_LIMIT_IP_KEY_PREFIX + Optional.ofNullable(clientIp).orElse("");
+        String cKey = OAUTH2_AUTHORIZE_RATE_LIMIT_CLIENT_KEY_PREFIX + Optional.ofNullable(clientId).orElse("");
         int limit = 10;
         long windowSec = TimeUnit.MINUTES.toSeconds(5);
         long ic = redisCache.incr(iKey, 1);
@@ -182,8 +186,8 @@ public class OAuth2ServiceImpl implements OAuth2Service {
 
     private void enforceTokenRateLimit(HttpServletRequest request, String clientId) {
         String clientIp = RequestContextUtil.resolveClientIp(request);
-        String iKey = "IM:AUTH:RL:OA:TOKEN:I:" + Optional.ofNullable(clientIp).orElse("");
-        String cKey = "IM:AUTH:RL:OA:TOKEN:C:" + Optional.ofNullable(clientId).orElse("");
+        String iKey = OAUTH2_TOKEN_RATE_LIMIT_IP_KEY_PREFIX + Optional.ofNullable(clientIp).orElse("");
+        String cKey = OAUTH2_TOKEN_RATE_LIMIT_CLIENT_KEY_PREFIX + Optional.ofNullable(clientId).orElse("");
         int limit = 10;
         long windowSec = TimeUnit.MINUTES.toSeconds(5);
         long ic = redisCache.incr(iKey, 1);
@@ -262,4 +266,3 @@ public class OAuth2ServiceImpl implements OAuth2Service {
         }
     }
 }
-

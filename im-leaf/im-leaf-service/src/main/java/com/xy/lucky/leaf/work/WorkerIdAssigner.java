@@ -9,7 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -45,7 +47,7 @@ public class WorkerIdAssigner {
      *
      * @throws IllegalStateException 当超过最大重试次数仍未成功时抛出
      */
-    public void load() {
+    public synchronized void load() {
         if (workerId != -1) return;
 
         for (int retry = 1; retry <= MAX_RETRY; retry++) {
@@ -77,7 +79,11 @@ public class WorkerIdAssigner {
         NamingService namingService = nacosServiceManager.getNamingService(
                 nacosDiscoveryProperties.getNacosProperties());
 
-        List<Instance> instances = namingService.getAllInstances(serviceName, true);
+        List<Instance> instances = namingService.getAllInstances(serviceName, true).stream()
+                .sorted(Comparator
+                        .comparing(Instance::getIp, Comparator.nullsLast(String::compareTo))
+                        .thenComparingInt(Instance::getPort))
+                .collect(Collectors.toList());
 
         if (instances.isEmpty()) {
             throw new IllegalStateException("当前服务在 Nacos 中无实例，检查是否已注册");
@@ -99,7 +105,10 @@ public class WorkerIdAssigner {
                                 "- 当前实例标识：" + selfAddress
                 ));
 
-        workerId = index % (MAX_WORKER_ID + 1) + 1;
+        if (index > MAX_WORKER_ID) {
+            throw new IllegalStateException("实例数量超出 workerId 上限，最多支持 " + (MAX_WORKER_ID + 1) + " 个实例");
+        }
+        workerId = index;
 
         if (workerId < 0 || workerId > MAX_WORKER_ID) {
             throw new IllegalArgumentException("WorkerId 计算异常: " + workerId);

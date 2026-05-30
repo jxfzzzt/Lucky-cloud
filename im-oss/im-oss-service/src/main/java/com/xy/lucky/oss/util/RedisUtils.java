@@ -1,7 +1,6 @@
 package com.xy.lucky.oss.util;
 
 import jakarta.annotation.Resource;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -31,12 +30,10 @@ public class RedisUtils {
      * @return 值
      */
     public List<Object> batchGet(List<String> keys) {
-        return redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
-            for (String key : keys) {
-                connection.get(key.getBytes());
-            }
-            return null;
-        });
+        if (keys == null || keys.isEmpty()) {
+            return List.of();
+        }
+        return redisTemplate.opsForValue().multiGet(keys);
     }
 
     /**
